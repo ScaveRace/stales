@@ -129,6 +129,19 @@ function toast(text) {
   toastTimer = setTimeout(() => t.classList.remove("show"), 2500);
 }
 
+// Cookie banners and pop-ups: three lists switched on and off together.
+const ANNOYANCE_LISTS = [
+  "https://secure.fanboy.co.nz/fanboy-cookiemonster.txt",
+  "https://ublockorigin.github.io/uAssets/filters/annoyances-cookies.txt",
+  "https://ublockorigin.github.io/uAssets/filters/annoyances-others.txt",
+];
+const annoyancesOn = () => ANNOYANCE_LISTS.every((l) => S.blocker.lists.includes(l));
+function setAnnoyances(on) {
+  const lists = S.blocker.lists.filter((l) => !ANNOYANCE_LISTS.includes(l));
+  if (on) lists.push(...ANNOYANCE_LISTS);
+  send("set-lists", { lists });
+}
+
 // ---------- Small helpers ----------
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const toggle = (id, on, label) =>
@@ -287,10 +300,10 @@ function settingsPage() {
     <section id="privacy">
       <h2>Privacy</h2>
       <div class="row"><span class="grow"><b>Block ads and trackers</b><br><span class="muted">${esc(b.status)}</span></span>${toggle("blocker", b.enabled, "Ad blocker")}</div>
+      <div class="row"><span class="grow"><b>Hide cookie banners and pop-ups</b><br><span class="muted">Cookie notices, "Sign in with Google" boxes and similar. Turn off if a site looks broken.</span></span>${toggle("annoyances", annoyancesOn(), "Cookie banners and pop-ups")}</div>
       <h3>Filter lists</h3>
       <textarea id="lists">${esc(b.lists.join("\n"))}</textarea>
       <div style="display:flex;gap:8px;margin-top:8px"><button id="save-lists">Save lists</button><button id="update-lists">Update now</button></div>
-      <p class="muted" style="margin-top:8px">Hide cookie banners too: add <code>https://secure.fanboy.co.nz/fanboy-cookiemonster.txt</code></p>
       <h3>Sites where nothing is blocked</h3>
       ${b.allowed.length ? b.allowed.map((a) => `<div class="row"><span class="grow">${esc(a.site)} <span class="muted">${a.from === "config" ? "(config.toml)" : "(shield button)"}</span></span><button class="small" data-allowed="${esc(a.site)}" data-from="${a.from}">Remove</button></div>`).join("") : '<p class="muted">None. Use the shield button on a site to add it.</p>'}
       <h3>Cookies and passwords</h3>
@@ -387,6 +400,7 @@ function wireSettings() {
   wireLogins();
 
   // Privacy
+  on("annoyances", "change", (e) => setAnnoyances(e.target.checked));
   on("save-lists", "click", () => send("set-lists", { lists: document.getElementById("lists").value.split("\n") }));
   on("update-lists", "click", () => send("update-lists"));
   document.querySelectorAll("[data-allowed]").forEach((b) => b.addEventListener("click", () => send("remove-allowed", { site: b.dataset.allowed, from: b.dataset.from })));
@@ -443,11 +457,10 @@ const STEPS = [
     <div class="row"><span class="grow"><b>Single-key commands</b></span>${toggle("vim", S.vim, "Single-key commands")}</div>
     <p class="muted">Ctrl shortcuts (<kbd>Ctrl</kbd>+<kbd>T</kbd>, <kbd>Ctrl</kbd>+<kbd>L</kbd>, …) always work.</p>`,
   () => {
-    const cookieList = "https://secure.fanboy.co.nz/fanboy-cookiemonster.txt";
     return `<h2>5 · Privacy</h2><h1>Block ads and trackers?</h1>
     <p class="lead">Uses the same filter lists as uBlock Origin, built into the engine.</p>
     <div class="row"><span class="grow"><b>Block ads and trackers</b></span>${toggle("blocker", S.blocker.enabled, "Ad blocker")}</div>
-    <div class="row"><span class="grow"><b>Also hide cookie banners</b><br><span class="muted">Can occasionally hide part of a site.</span></span>${toggle("cookies", S.blocker.lists.includes(cookieList), "Cookie banners")}</div>
+    <div class="row"><span class="grow"><b>Also hide cookie banners and pop-ups</b><br><span class="muted">Can occasionally hide part of a site.</span></span>${toggle("cookies", annoyancesOn(), "Cookie banners and pop-ups")}</div>
     <p class="muted">Cookies from other sites are always refused. Stales doesn't save passwords. Use a password manager.</p>`;
   },
   () => `<h1>All set</h1><p class="lead">A few keys to remember:</p>
@@ -470,12 +483,7 @@ function wireSetup() {
   on("next", "click", () => { step++; render(); });
   on("back", "click", () => { step--; render(); });
   on("finish", "click", () => send("finish-setup"));
-  on("cookies", "change", (e) => {
-    const url = "https://secure.fanboy.co.nz/fanboy-cookiemonster.txt";
-    const lists = S.blocker.lists.filter((l) => l !== url);
-    if (e.target.checked) lists.push(url);
-    send("set-lists", { lists });
-  });
+  on("cookies", "change", (e) => setAnnoyances(e.target.checked));
   document.getElementById("next")?.focus();
 }
 

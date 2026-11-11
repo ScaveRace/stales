@@ -70,9 +70,19 @@ impl Default for BlockerConfig {
         Self {
             enabled: true,
             lists: vec![
+                // Ads and trackers: the lists uBlock Origin uses by default.
                 "https://easylist.to/easylist/easylist.txt".into(),
                 "https://easylist.to/easylist/easyprivacy.txt".into(),
                 "https://ublockorigin.github.io/uAssets/filters/filters.txt".into(),
+                "https://ublockorigin.github.io/uAssets/filters/privacy.txt".into(),
+                "https://ublockorigin.github.io/uAssets/filters/quick-fixes.txt".into(),
+                "https://ublockorigin.github.io/uAssets/filters/unbreak.txt".into(),
+                "https://pgl.yoyo.org/adservers/serverlist.php?hostformat=adblockplus&showintro=0&mimetype=plaintext"
+                    .into(),
+                // Cookie banners and pop-ups (like "Sign in with Google" boxes).
+                "https://secure.fanboy.co.nz/fanboy-cookiemonster.txt".into(),
+                "https://ublockorigin.github.io/uAssets/filters/annoyances-cookies.txt".into(),
+                "https://ublockorigin.github.io/uAssets/filters/annoyances-others.txt".into(),
             ],
             update_days: 7,
             allow: Vec::new(),

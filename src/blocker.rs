@@ -81,12 +81,26 @@ pub fn start(ui: &Rc<Ui>) {
     let outdated = stamp.lists != config.lists || now().saturating_sub(stamp.updated) > max_age;
 
     set_status(ui, Status::Working("loading rules".into()));
+    // Rules from last time load in well under a second; let pages wait for them so
+    // the first page after a start is blocked too. (No saved rules yet, on the very
+    // first start, means a download: pages don't wait for that.) Never wait longer
+    // than 3 seconds, whatever happens.
+    if stamp.parts > 0 {
+        ui.hold_pages.set(true);
+        let weak = Rc::downgrade(ui);
+        glib::timeout_add_local_once(std::time::Duration::from_secs(3), move || {
+            if let Some(ui) = weak.upgrade() {
+                window::release_held_pages(&ui);
+            }
+        });
+    }
     let weak = Rc::downgrade(ui);
     let rules = (stamp.rules > 0).then_some(stamp.rules);
     ui.engine.load_saved_blocklist(
         stamp.parts,
         Box::new(move |found| {
             let Some(ui) = weak.upgrade() else { return };
+            window::release_held_pages(&ui);
             if found {
                 set_status(&ui, Status::Ready { rules });
             }

@@ -71,11 +71,19 @@ enabled = true
 
 # Filter lists in Adblock Plus / uBlock format. They are downloaded and refreshed automatically.
 lists = [
+  # Ads and trackers: the lists uBlock Origin uses by default.
   "https://easylist.to/easylist/easylist.txt",
   "https://easylist.to/easylist/easyprivacy.txt",
   "https://ublockorigin.github.io/uAssets/filters/filters.txt",
-  # Hide cookie banners too (can occasionally hide part of a site):
-  # "https://secure.fanboy.co.nz/fanboy-cookiemonster.txt",
+  "https://ublockorigin.github.io/uAssets/filters/privacy.txt",
+  "https://ublockorigin.github.io/uAssets/filters/quick-fixes.txt",
+  "https://ublockorigin.github.io/uAssets/filters/unbreak.txt",
+  "https://pgl.yoyo.org/adservers/serverlist.php?hostformat=adblockplus&showintro=0&mimetype=plaintext",
+  # Cookie banners and pop-ups (like "Sign in with Google" boxes).
+  # Remove these three lines if a site looks broken.
+  "https://secure.fanboy.co.nz/fanboy-cookiemonster.txt",
+  "https://ublockorigin.github.io/uAssets/filters/annoyances-cookies.txt",
+  "https://ublockorigin.github.io/uAssets/filters/annoyances-others.txt",
   # Hide social media buttons and widgets:
   # "https://easylist.to/easylist/fanboy-social.txt",
 ]
