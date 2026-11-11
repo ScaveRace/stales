@@ -23,6 +23,66 @@ pub struct Config {
     pub blocker: BlockerConfig,
     pub appearance: AppearanceConfig,
     pub passwords: PasswordsConfig,
+    pub web: WebConfig,
+    pub downloads: DownloadsConfig,
+    pub sidebar: SidebarConfig,
+    pub history: HistoryConfig,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(default)]
+pub struct HistoryConfig {
+    /// Remember the pages you visit.
+    pub enabled: bool,
+    /// Forget visits older than this many days (0: keep everything).
+    pub keep_days: u32,
+}
+
+impl Default for HistoryConfig {
+    fn default() -> Self {
+        Self { enabled: true, keep_days: 90 }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct SidebarConfig {
+    /// How many pinned tiles a Space can have.
+    pub pinned_max: usize,
+    /// Pinned tiles per row in the sidebar.
+    pub pinned_per_row: u32,
+    /// "small", "medium" or "large".
+    pub pinned_size: String,
+    /// Folders in the tab list.
+    pub folders: bool,
+}
+
+impl Default for SidebarConfig {
+    fn default() -> Self {
+        Self { pinned_max: 9, pinned_per_row: 3, pinned_size: "medium".into(), folders: true }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(default)]
+pub struct DownloadsConfig {
+    /// Ask before each download.
+    pub ask: bool,
+    /// Where downloads go. Empty: your Downloads folder.
+    pub folder: String,
+}
+
+impl Default for DownloadsConfig {
+    fn default() -> Self {
+        Self { ask: true, folder: String::new() }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct WebConfig {
+    /// How Stales introduces itself to websites. Empty: a current Safari.
+    pub user_agent: String,
 }
 
 #[derive(Debug, Deserialize)]

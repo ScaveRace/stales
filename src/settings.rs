@@ -26,6 +26,7 @@ pub const SETUP_URL: &str = "stales://setup";
 /// HTML for a stales:// page.
 pub fn render_page(ui: &Ui, name: &str) -> Option<String> {
     match name {
+        "history" => Some(include_str!("history.html").to_string()),
         "settings" | "setup" => {
             let state = serde_json::to_string(&state(ui)).unwrap_or_default().replace("</", "<\\/");
             Some(
@@ -41,18 +42,27 @@ pub fn render_page(ui: &Ui, name: &str) -> Option<String> {
 
 /// Ctrl+, : show the settings tab (reusing an open one).
 pub fn open(ui: &Rc<Ui>) {
+    open_page(ui, SETTINGS_URL);
+}
+
+/// Show one of Stales' own pages, reusing its tab if it is open already.
+pub fn open_page(ui: &Rc<Ui>, url: &str) {
     let existing = {
         let state = ui.state.borrow();
         let space = state.space();
-        let pinned = space.pinned.iter().position(|t| t.url.starts_with(SETTINGS_URL));
-        let tab = space.tabs.iter().position(|t| t.url.starts_with(SETTINGS_URL));
+        let pinned = space.pinned.iter().position(|t| t.url.starts_with(url));
+        let tab = space.tabs.iter().position(|t| t.url.starts_with(url));
         pinned.map(crate::state::Selected::Pinned).or(tab.map(crate::state::Selected::Tab))
     };
     match existing {
         Some(selected) => {
             ui.state.borrow_mut().select(selected);
+            // Show what is true now (e.g. permissions answered since it was opened).
+            if let Some(page) = window::active_page(ui) {
+                page.reload();
+            }
         }
-        None => ui.state.borrow_mut().open_tab(SETTINGS_URL),
+        None => ui.state.borrow_mut().open_tab(url),
     }
     window::refresh(ui);
     window::focus_page(ui);
@@ -130,10 +140,19 @@ fn state(ui: &Ui) -> Value {
                 .collect::<Vec<_>>(),
         },
         "passwords": {"enabled": config.passwords.enabled},
+        "history": {"enabled": config.history.enabled, "keep_days": config.history.keep_days, "count": ui.history.borrow().len()},
+        "site_permissions": saved.site_permissions.iter().map(|p| json!({
+            "origin": p.origin, "kind": p.kind, "allow": p.allow, "what": crate::permissions::describe(p.kind),
+        })).collect::<Vec<_>>(),
+        "downloads": {"ask": config.downloads.ask, "folder": config.downloads.folder},
         "spaces": state.spaces.iter().map(|s| json!({"name": s.name, "icon": s.icon, "color": s.color})).collect::<Vec<_>>(),
         "current_space": state.current,
         "colors": theme::SPACE_COLORS,
-        "sidebar": {"width": saved.sidebar_width, "compact": saved.sidebar_compact},
+        "sidebar": {
+            "width": saved.sidebar_width, "compact": saved.sidebar_compact,
+            "pinned_max": config.sidebar.pinned_max, "pinned_per_row": config.sidebar.pinned_per_row,
+            "pinned_size": config.sidebar.pinned_size, "folders": config.sidebar.folders,
+        },
         "paths": {
             "config": config::path().to_string_lossy(),
             "user_css": gtk::glib::user_config_dir().join("stales/user.css").to_string_lossy(),
@@ -330,18 +349,90 @@ pub fn handle(ui: &Rc<Ui>, id: TabId, message: &str) {
             let on = flag("on");
             save(ui, |doc| config::set(doc, &["passwords"], "enabled", on.into()));
         }
+        "set-permission" => {
+            // Flip (or with "remove": forget) one remembered answer.
+            let (origin, kind) = (text("origin"), text("kind"));
+            let mut saved = ui.saved.borrow_mut();
+            let matches = |p: &crate::permissions::SitePermission| {
+                p.origin == origin
+                    && serde_json::to_value(p.kind).ok().and_then(|v| v.as_str().map(String::from))
+                        == Some(kind.clone())
+            };
+            if flag("remove") {
+                saved.site_permissions.retain(|p| !matches(p));
+            } else if let Some(p) = saved.site_permissions.iter_mut().find(|p| matches(p)) {
+                p.allow = flag("allow");
+            }
+            crate::saved::store(&saved);
+            drop(saved);
+            crate::permissions::send_notification_permissions(ui);
+            note = Some("Reload the site to use the change".into());
+        }
+        "set-downloads" => {
+            let ask = flag("ask");
+            let folder = text("folder");
+            save(ui, |doc| {
+                config::set(doc, &["downloads"], "ask", ask.into());
+                config::set(doc, &["downloads"], "folder", folder.as_str().into());
+            });
+        }
         "clear-data" => {
+            // What to delete, and from when ("hour", "day", "week", or everything).
+            let since = match text("range").as_str() {
+                "hour" => Some(60 * 60),
+                "day" => Some(24 * 60 * 60),
+                "week" => Some(7 * 24 * 60 * 60),
+                _ => None,
+            };
+            if flag("history") {
+                ui.history.borrow_mut().clear(since);
+            }
+            let (cookies, cache) = (flag("cookies"), flag("cache"));
             let weak = Rc::downgrade(ui);
-            ui.engine.clear_site_data(Box::new(move |result| {
-                if let Some(ui) = weak.upgrade() {
-                    let text = match result {
-                        Ok(()) => "Cookies, cache and site data deleted".to_string(),
-                        Err(e) => format!("Could not delete everything: {e}"),
-                    };
-                    window::toast(&ui, &text);
-                }
-            }));
+            ui.engine.clear_site_data(
+                cookies,
+                cache,
+                since,
+                Box::new(move |result| {
+                    if let Some(ui) = weak.upgrade() {
+                        let text = match result {
+                            Ok(()) => "Browsing data deleted".to_string(),
+                            Err(e) => format!("Could not delete everything: {e}"),
+                        };
+                        window::toast(&ui, &text);
+                    }
+                }),
+            );
             note = Some("Deleting…".into());
+        }
+        "set-history" => {
+            let on = flag("on");
+            let days = msg.get("keep_days").and_then(Value::as_i64).unwrap_or(90).clamp(0, 3650);
+            save(ui, |doc| {
+                config::set(doc, &["history"], "enabled", on.into());
+                config::set(doc, &["history"], "keep_days", days.into());
+            });
+        }
+        // The history page (stales://history).
+        "history-search" => {
+            let query = text("q");
+            let results: Vec<Value> = ui
+                .history
+                .borrow()
+                .search(&query, 400)
+                .iter()
+                .map(|v| json!({"url": v.url, "title": v.title, "time": v.time}))
+                .collect();
+            let page = ui.pages.borrow().get(&id).cloned();
+            if let Some(page) = page {
+                page.run_script(&format!("window.stalesHistory && window.stalesHistory({})", json!(results)));
+            }
+            return;
+        }
+        "history-delete" => {
+            let time = msg.get("time").and_then(Value::as_u64).unwrap_or(0);
+            ui.history.borrow_mut().delete(&text("url"), time);
+            return;
         }
         "set-space" => {
             let index = msg.get("index").and_then(Value::as_u64).unwrap_or(u64::MAX) as usize;
@@ -362,6 +453,27 @@ pub fn handle(ui: &Rc<Ui>, id: TabId, message: &str) {
             }
             drop(state);
             window::refresh(ui);
+        }
+        "set-pinned" => {
+            let number = |key: &str, low: i64, high: i64, fallback: i64| {
+                msg.get(key).and_then(Value::as_i64).unwrap_or(fallback).clamp(low, high)
+            };
+            let max = number("pinned_max", 1, 40, 9);
+            let per_row = number("pinned_per_row", 1, 8, 3);
+            let size = match text("pinned_size").as_str() {
+                "small" => "small",
+                "large" => "large",
+                _ => "medium",
+            };
+            let folders = flag("folders");
+            if save(ui, |doc| {
+                config::set(doc, &["sidebar"], "pinned_max", max.into());
+                config::set(doc, &["sidebar"], "pinned_per_row", per_row.into());
+                config::set(doc, &["sidebar"], "pinned_size", size.into());
+                config::set(doc, &["sidebar"], "folders", folders.into());
+            }) {
+                window::refresh(ui);
+            }
         }
         "set-sidebar" => {
             if let Some(width) = msg.get("width").and_then(Value::as_i64) {

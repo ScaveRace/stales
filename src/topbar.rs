@@ -159,13 +159,11 @@ fn tab_widget(ui: &Rc<Ui>, selected: Selected, tab: &crate::state::Tab, active: 
         item.append(&title);
         let close = icon_button("window-close-symbolic", "Close tab (Ctrl+W)");
         close.add_css_class("st-close");
-        if let Selected::Tab(i) = selected {
-            let u = ui.clone();
-            close.connect_clicked(move |_| {
-                u.state.borrow_mut().close_tab(i);
-                window::refresh_later(&u);
-            });
-        }
+        let u = ui.clone();
+        close.connect_clicked(move |_| {
+            let u = u.clone();
+            gtk::glib::idle_add_local_once(move || window::close_tab(&u, selected));
+        });
         item.append(&close);
     }
 
@@ -175,8 +173,10 @@ fn tab_widget(ui: &Rc<Ui>, selected: Selected, tab: &crate::state::Tab, active: 
     let u = ui.clone();
     click.connect_released(move |gesture, _, _, _| {
         match (gesture.current_button(), selected) {
-            (2, Selected::Tab(i)) => {
-                u.state.borrow_mut().close_tab(i);
+            (2, Selected::Tab(_)) => {
+                let u = u.clone();
+                gtk::glib::idle_add_local_once(move || window::close_tab(&u, selected));
+                return;
             }
             (1, _) => {
                 u.state.borrow_mut().select(selected);
@@ -186,6 +186,16 @@ fn tab_widget(ui: &Rc<Ui>, selected: Selected, tab: &crate::state::Tab, active: 
         window::refresh_later(&u);
     });
     item.add_controller(click);
+    // Drag tabs to reorder them, or onto the pinned icons to pin them.
+    crate::sidebar::drag_source(ui, &item, selected);
+    let spot = match selected {
+        Selected::Pinned(i) => crate::sidebar::Drop::Pinned(i),
+        Selected::Tab(i) => {
+            let folder = ui.state.borrow().space().tabs.get(i).and_then(|t| t.folder);
+            crate::sidebar::Drop::List { index: i, folder }
+        }
+    };
+    crate::sidebar::drop_target(ui, &item, spot);
     item
 }
 

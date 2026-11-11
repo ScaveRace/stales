@@ -19,16 +19,33 @@ use gtk::glib;
 use gtk::prelude::*;
 use libsecret::prelude::*;
 use libsecret::{Schema, SchemaAttributeType, SchemaFlags, SearchFlags};
-use serde_json::{Value, json};
+use serde_json::json;
 
 use crate::state::TabId;
 use crate::window::{self, Ui};
+
+/// A password in memory. Overwritten with zeros as soon as it is dropped, so it
+/// doesn't linger in Stales' memory after use.
+pub type Secret = zeroize::Zeroizing<String>;
+
+/// A message from passwords.js. The password field is a `Secret`, so even the copy
+/// made while reading the message is wiped.
+#[derive(serde::Deserialize)]
+struct ScriptMessage {
+    #[serde(rename = "type")]
+    kind: String,
+    origin: String,
+    #[serde(default)]
+    username: String,
+    #[serde(default)]
+    password: Secret,
+}
 
 /// A login waiting for you to choose "Save" in the bar.
 pub struct PendingLogin {
     pub origin: String,
     pub username: String,
-    pub password: String,
+    pub password: Secret,
     /// The keyring already has this login with a different password.
     pub update: bool,
 }
@@ -100,10 +117,10 @@ pub fn all(done: impl FnOnce(Vec<(String, String)>) + 'static) {
     );
 }
 
-pub fn password(origin: &str, username: &str, done: impl FnOnce(Option<String>) + 'static) {
+pub fn password(origin: &str, username: &str, done: impl FnOnce(Option<Secret>) + 'static) {
     let attributes = HashMap::from([("origin", origin), ("username", username)]);
     libsecret::password_lookup(Some(&schema()), attributes, None::<&gtk::gio::Cancellable>, move |result| {
-        done(result.ok().flatten().map(|p| p.to_string()));
+        done(result.ok().flatten().map(|p| Secret::new(p.to_string())));
     });
 }
 
@@ -130,9 +147,8 @@ pub fn delete(origin: &str, username: &str, done: impl FnOnce() + 'static) {
 
 /// A JSON message from the password script in tab `id`.
 pub fn handle(ui: &Rc<Ui>, id: TabId, message: &str) {
-    let Ok(msg) = serde_json::from_str::<Value>(message) else { return };
-    let text = |key: &str| msg.get(key).and_then(Value::as_str).unwrap_or_default().to_string();
-    let origin = text("origin");
+    let Ok(msg) = serde_json::from_str::<ScriptMessage>(message) else { return };
+    let origin = msg.origin.clone();
 
     // The script runs inside the page, so check its claim: the message must be about
     // the site this tab is showing.
@@ -141,7 +157,7 @@ pub fn handle(ui: &Rc<Ui>, id: TabId, message: &str) {
         return;
     }
 
-    match text("type").as_str() {
+    match msg.kind.as_str() {
         // A page with a login form loaded: tell it which accounts exist (names only).
         "logins-wanted" => {
             let weak = Rc::downgrade(ui);
@@ -154,10 +170,10 @@ pub fn handle(ui: &Rc<Ui>, id: TabId, message: &str) {
             });
         }
         // You picked an account in the suggestion.
-        "fill" => fill(ui, id, &origin, &text("username")),
+        "fill" => fill(ui, id, &origin, &msg.username),
         // You logged in: maybe offer to save.
         "submitted" => {
-            let (username, password) = (text("username"), text("password"));
+            let (username, password) = (msg.username, msg.password);
             if password.is_empty() || ui.saved.borrow().password_never.contains(&origin) {
                 return;
             }
@@ -165,7 +181,7 @@ pub fn handle(ui: &Rc<Ui>, id: TabId, message: &str) {
             let (o, u) = (origin.clone(), username.clone());
             self::password(&origin, &username, move |existing| {
                 let Some(ui) = weak.upgrade() else { return };
-                if existing.as_deref() == Some(password.as_str()) {
+                if existing.as_ref().map(|e| e.as_str()) == Some(password.as_str()) {
                     return; // already saved, nothing to ask
                 }
                 let update = existing.is_some();
@@ -186,7 +202,8 @@ fn fill(ui: &Rc<Ui>, id: TabId, origin: &str, username: &str) {
     let user = username.to_string();
     password(origin, username, move |found| {
         let (Some(ui), Some(password)) = (weak.upgrade(), found) else { return };
-        let script = format!("window.__stalesFill && window.__stalesFill({}, {})", json!(user), json!(password));
+        let quoted = Secret::new(serde_json::to_string(password.as_str()).unwrap_or_default());
+        let script = Secret::new(format!("window.__stalesFill && window.__stalesFill({}, {})", json!(user), *quoted));
         send_to_page(&ui, id, &script);
     });
 }
@@ -234,8 +251,20 @@ fn ask_to_save(ui: &Rc<Ui>, login: PendingLogin) {
     };
     ui.password_bar.label.set_label(&question);
     ui.password_bar.save.set_label(if login.update { "Update" } else { "Save" });
+    let key = (login.origin.clone(), login.username.clone());
     ui.pending_login.replace(Some(login));
     ui.password_bar.root.set_visible(true);
+    // Ignored for 2 minutes: forget it (and wipe the password).
+    let weak = Rc::downgrade(ui);
+    glib::timeout_add_local_once(Duration::from_secs(120), move || {
+        if let Some(ui) = weak.upgrade() {
+            let same =
+                ui.pending_login.borrow().as_ref().is_some_and(|p| (p.origin.clone(), p.username.clone()) == key);
+            if same {
+                dismiss(&ui);
+            }
+        }
+    });
 }
 
 /// The bar's "Save" (or Ctrl+Shift+Enter).
@@ -346,13 +375,24 @@ pub fn copy(ui: &Rc<Ui>, origin: &str, username: &str) {
     password(origin, username, move |found| {
         let (Some(ui), Some(password)) = (weak.upgrade(), found) else { return };
         let clipboard = ui.window.clipboard();
-        clipboard.set_text(&password);
+        // Marked as secret, so clipboard history tools (cliphist, Klipper, …) don't keep it.
+        let text = gtk::glib::Bytes::from(password.as_bytes());
+        let content = gtk::gdk::ContentProvider::new_union(&[
+            gtk::gdk::ContentProvider::for_bytes("text/plain;charset=utf-8", &text),
+            gtk::gdk::ContentProvider::for_bytes("text/plain", &text),
+            gtk::gdk::ContentProvider::for_bytes(
+                "x-kde-passwordManagerHint",
+                &gtk::glib::Bytes::from_static(b"secret"),
+            ),
+        ]);
+        let _ = clipboard.set_content(Some(&content));
         window::toast(&ui, "Password copied; cleared from the clipboard in 30 seconds");
         glib::timeout_add_local_once(Duration::from_secs(30), move || {
             // Only clear it if it still holds the password (you may have copied something else).
             let clip = clipboard.clone();
             clipboard.read_text_async(None::<&gtk::gio::Cancellable>, move |text| {
-                if text.ok().flatten().as_deref() == Some(password.as_str()) {
+                let current = text.ok().flatten().map(|t| Secret::new(t.to_string()));
+                if current.as_ref().map(|c| c.as_str()) == Some(password.as_str()) {
                     clip.set_text("");
                 }
             });

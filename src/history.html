@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>History</title>
+<style>
+  :root { --bg:#0a0a0b; --card:#141416; --border:rgba(255,255,255,.08); --fg:#e4e4e7; --muted:#8a8a93; --key:rgba(255,255,255,.08); --hover:rgba(255,255,255,.06); --danger:#f87171; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#fff; --card:#f4f4f5; --border:rgba(0,0,0,.09); --fg:#18181b; --muted:#6b6b74; --key:rgba(0,0,0,.06); --hover:rgba(0,0,0,.05); --danger:#dc2626; }
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--bg); }
+  body { margin: 0 auto; max-width: 860px; padding: 40px 28px 80px; color: var(--fg); font: 14px/1.5 system-ui, sans-serif; }
+  h1 { font-size: 30px; margin: 0 0 16px; letter-spacing: -.02em; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 26px 0 6px; }
+  input { font: inherit; color: var(--fg); background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 9px 12px; width: 100%; }
+  input:focus { outline: 2px solid var(--fg); outline-offset: 1px; }
+  .row { display: flex; align-items: center; gap: 12px; padding: 6px 8px; border-radius: 9px; }
+  .row:hover { background: var(--hover); }
+  .row a { flex: 1; min-width: 0; color: var(--fg); text-decoration: none; }
+  .row .title { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .url { display: block; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .time { color: var(--muted); font-size: 12px; width: 44px; flex: none; }
+  button { font: inherit; color: var(--muted); background: none; border: 1px solid transparent; border-radius: 8px; padding: 2px 8px; cursor: pointer; }
+  button:hover { color: var(--danger); border-color: var(--border); }
+  .muted { color: var(--muted); }
+  .bar { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
+  .bar span { flex: 1; }
+</style>
+</head>
+<body>
+  <h1>History</h1>
+  <input id="q" type="text" placeholder="Search your history" autofocus>
+  <div class="bar muted" style="margin-top:10px"><span id="count"></span><a href="stales://settings#privacy" class="muted">Delete browsing data…</a></div>
+  <div id="list"><p class="muted">Loading…</p></div>
+<script>
+"use strict";
+const send = (cmd, data = {}) => window.webkit.messageHandlers.stalesSettings.postMessage(JSON.stringify({ cmd, ...data }));
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+let visits = [];
+
+function day(t) {
+  const d = new Date(t * 1000), today = new Date();
+  const start = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((start(today) - start(d)) / 86400000);
+  if (diff === 0) return "Today";
+  if (diff === 1) return "Yesterday";
+  return d.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: diff > 300 ? "numeric" : undefined });
+}
+
+function render() {
+  const list = document.getElementById("list");
+  document.getElementById("count").textContent = visits.length ? `${visits.length}${visits.length >= 400 ? "+" : ""} visits` : "";
+  if (!visits.length) { list.innerHTML = '<p class="muted">Nothing found.</p>'; return; }
+  let html = "", last = "";
+  for (const v of visits) {
+    const d = day(v.time);
+    if (d !== last) { html += `<h2>${esc(d)}</h2>`; last = d; }
+    const time = new Date(v.time * 1000).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+    html += `<div class="row"><span class="time">${time}</span>
+      <a href="${esc(v.url)}"><span class="title">${esc(v.title)}</span><span class="url">${esc(v.url)}</span></a>
+      <button title="Delete this visit" data-url="${esc(v.url)}" data-time="${v.time}">✕</button></div>`;
+  }
+  list.innerHTML = html;
+  list.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+    send("history-delete", { url: b.dataset.url, time: Number(b.dataset.time) });
+    visits = visits.filter((v) => !(v.url === b.dataset.url && v.time === Number(b.dataset.time)));
+    render();
+  }));
+}
+
+window.stalesHistory = (results) => { visits = results; render(); };
+let timer;
+document.getElementById("q").addEventListener("input", (e) => {
+  clearTimeout(timer);
+  timer = setTimeout(() => send("history-search", { q: e.target.value }), 150);
+});
+send("history-search", { q: "" });
+</script>
+</body>
+</html>

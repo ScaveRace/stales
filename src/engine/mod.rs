@@ -13,6 +13,43 @@ use gtk::gdk;
 /// Makes the HTML of a stales:// page from its name (`None`: no such page).
 pub type PageRenderer = Box<dyn Fn(&str) -> Option<String>>;
 
+/// Something a site can ask to use.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Permission {
+    Location,
+    Notifications,
+    Camera,
+    Microphone,
+    ScreenShare,
+    /// An embedded site (e.g. a video player) wants its cookies inside another site.
+    EmbeddedCookies,
+    /// Listing your cameras and microphones; allowed only where you allowed one of them.
+    DeviceList,
+}
+
+/// A site asks for permissions; call `reply` with your answer.
+pub struct PermissionAsk {
+    pub kinds: Vec<Permission>,
+    pub reply: Box<dyn FnOnce(bool)>,
+}
+
+/// A download wants to start, finished, or failed.
+pub enum DownloadEvent {
+    /// Call `decide` with where to save it, or `None` to cancel.
+    Ask {
+        file_name: String,
+        url: String,
+        size: Option<u64>,
+        decide: Box<dyn FnOnce(Option<std::path::PathBuf>)>,
+    },
+    Finished(std::path::PathBuf),
+    Failed {
+        file_name: String,
+        error: String,
+    },
+}
+
 /// Things a page tells the browser about while it runs.
 pub enum PageEvent {
     Title(String),
@@ -33,6 +70,8 @@ pub enum PageEvent {
     Settings(String),
     /// Find in page: how many matches, or `None` if the text wasn't found.
     FindResult(Option<u32>),
+    /// The site wants to use your location, camera, … (see `Permission`).
+    Permission(PermissionAsk),
 }
 
 /// One web page (one tab).
@@ -108,6 +147,17 @@ pub trait Engine {
     fn clear_blocklist(&self);
     /// New single-key settings: used by new pages, and by open tabs after they reload.
     fn set_page_keys(&self, keys: &PageKeys);
-    /// Delete cookies, cache and site data (logs you out everywhere).
-    fn clear_site_data(&self, done: Box<dyn FnOnce(Result<(), String>)>);
+    /// Downloads are reported here (all tabs share one handler).
+    fn set_download_handler(&self, on_event: Box<dyn Fn(DownloadEvent)>);
+    /// Sites you allowed or blocked notifications for, so pages know at once.
+    fn set_notification_permissions(&self, allowed: Vec<String>, blocked: Vec<String>);
+    /// Delete site data from the last `since_seconds` (None: all of it): cookies and
+    /// everything sites store (logs you out), and/or the cache (pages load slower once).
+    fn clear_site_data(
+        &self,
+        cookies: bool,
+        cache: bool,
+        since_seconds: Option<u64>,
+        done: Box<dyn FnOnce(Result<(), String>)>,
+    );
 }

@@ -61,6 +61,8 @@ pub struct Saved {
     pub blocker_allow: Vec<String>,
     /// Sites where you chose "Never" in the save-login bar.
     pub password_never: Vec<String>,
+    /// What you answered when sites asked for your location, camera, … (per site).
+    pub site_permissions: Vec<crate::permissions::SitePermission>,
     /// Old versions kept the theme and layout here; they now live in config.toml.
     /// Read once to move them over, never written again.
     #[serde(skip_serializing)]
@@ -76,6 +78,7 @@ impl Default for Saved {
             sidebar_compact: false,
             blocker_allow: Vec::new(),
             password_never: Vec::new(),
+            site_permissions: Vec::new(),
             theme: None,
             layout: None,
         }

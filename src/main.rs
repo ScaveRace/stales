@@ -8,7 +8,9 @@ mod control;
 mod engine;
 mod find_bar;
 mod help;
+mod history;
 mod passwords;
+mod permissions;
 mod saved;
 mod search;
 mod session;
@@ -26,6 +28,7 @@ const APP_ID: &str = "dev.stales.Stales";
 
 fn main() -> gtk::glib::ExitCode {
     make_files_private();
+    protect_memory();
     // HANDLES_OPEN: `stales https://example.com` (or clicking a link in another app
     // when Stales is your default browser) opens that address. GTK makes Stales a
     // single instance: if it is already running, the address goes to that window.
@@ -41,6 +44,24 @@ fn main() -> gtk::glib::ExitCode {
         }
     });
     app.run()
+}
+
+/// Don't write this process's memory to crash files ("core dumps"): it can briefly
+/// hold a password being saved or filled. (Other programs reading Stales' memory is
+/// already prevented by the kernel's ptrace protection on Arch and Ubuntu.)
+/// Set STALES_ALLOW_CORE_DUMPS=1 to get crash files when debugging.
+///
+/// Not PR_SET_DUMPABLE: that would also stop the desktop portals (file uploads, screen
+/// sharing, camera, dark mode) from recognising Stales.
+fn protect_memory() {
+    if std::env::var("STALES_ALLOW_CORE_DUMPS").as_deref() == Ok("1") {
+        return;
+    }
+    let no_core = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    // SAFETY: setrlimit only changes this process's own limit.
+    unsafe {
+        libc::setrlimit(libc::RLIMIT_CORE, &no_core);
+    }
 }
 
 /// Your cookies (= your logins), history and tabs must not be readable by other

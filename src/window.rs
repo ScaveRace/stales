@@ -32,7 +32,7 @@ use crate::find_bar::{self, FindBar};
 use crate::help::{self, Help};
 use crate::saved::{self, SIDEBAR_COMPACT, SIDEBAR_DEFAULT, Saved};
 use crate::sidebar::{self, Sidebar};
-use crate::state::{State, TabId};
+use crate::state::{Selected, State, TabId};
 use crate::topbar::{self, TopBar};
 use crate::{blocker, session, theme};
 
@@ -89,6 +89,10 @@ pub struct Ui {
     /// Short messages like "Address copied", shown at the bottom of the page.
     pub toast: gtk::Label,
     pub password_bar: crate::passwords::PasswordBar,
+    /// Pages you visited.
+    pub history: RefCell<crate::history::History>,
+    /// "Allow / Block" questions from sites and downloads.
+    pub question_bar: crate::permissions::QuestionBar,
     /// A login waiting for "Save" in the password bar.
     pub pending_login: RefCell<Option<crate::passwords::PendingLogin>>,
     refresh_queued: Cell<bool>,
@@ -207,6 +211,8 @@ fn build(app: &gtk::Application) -> Rc<Ui> {
     page_overlay.add_overlay(&toast);
     let password_bar = crate::passwords::build_bar();
     page_overlay.add_overlay(&password_bar.root);
+    let question_bar = crate::permissions::build_bar();
+    page_overlay.add_overlay(&question_bar.root);
 
     // The page area: a rounded card, like Arc. `Overflow::Hidden` clips the web
     // page to the rounded corners.
@@ -247,7 +253,8 @@ fn build(app: &gtk::Application) -> Rc<Ui> {
     overlay.add_overlay(&help.scrim);
     window.set_child(Some(&overlay));
 
-    let engine = Box::new(WebKitEngine::new(&actions::page_keys(&config.keys)));
+    let history_days = config.history.keep_days;
+    let engine = Box::new(WebKitEngine::new(&actions::page_keys(&config.keys), &config.web.user_agent));
     let ui = Rc::new(Ui {
         state: RefCell::new(session::load(config.search())),
         config: RefCell::new(config),
@@ -269,6 +276,8 @@ fn build(app: &gtk::Application) -> Rc<Ui> {
         help,
         toast,
         password_bar,
+        question_bar,
+        history: RefCell::new(crate::history::History::load(history_days)),
         pending_login: RefCell::new(None),
         refresh_queued: Cell::new(false),
         save_queued: Cell::new(false),
@@ -302,6 +311,9 @@ fn build(app: &gtk::Application) -> Rc<Ui> {
     command_bar::connect(&ui);
     find_bar::connect(&ui);
     crate::passwords::connect_bar(&ui);
+    crate::permissions::connect_bar(&ui);
+    crate::permissions::connect_downloads(&ui);
+    crate::permissions::send_notification_permissions(&ui);
     help::connect(&ui);
     actions::install(&ui);
     crate::control::start(&ui);
@@ -474,8 +486,18 @@ fn handle_page_event(ui: &Rc<Ui>, id: TabId, event: PageEvent) {
     match event {
         PageEvent::Title(title) => {
             if !title.is_empty() {
-                if let Some(tab) = ui.state.borrow_mut().tab_mut(id) {
-                    tab.title = title;
+                let url = {
+                    let mut state = ui.state.borrow_mut();
+                    state.tab_mut(id).map(|tab| {
+                        tab.title = title.clone();
+                        tab.url.clone()
+                    })
+                };
+                // A page finished loading enough to have a title: that's a visit.
+                if let Some(url) = url
+                    && ui.config.borrow().history.enabled
+                {
+                    ui.history.borrow_mut().add(&url, &title);
                 }
                 refresh_later(ui);
             }
@@ -519,7 +541,9 @@ fn handle_page_event(ui: &Rc<Ui>, id: TabId, event: PageEvent) {
                 return;
             }
             if message.starts_with('{') {
-                // JSON: a message from the password manager script.
+                // JSON: a message from the password manager script (may hold a password,
+                // so the message is wiped afterwards).
+                let message = zeroize::Zeroizing::new(message);
                 crate::passwords::handle(ui, id, &message);
             } else if let Some(url) = message.strip_prefix("open-new-tab ") {
                 ui.state.borrow_mut().open_tab_background(url);
@@ -530,6 +554,7 @@ fn handle_page_event(ui: &Rc<Ui>, id: TabId, event: PageEvent) {
             }
         }
         PageEvent::Settings(message) => crate::settings::handle(ui, id, &message),
+        PageEvent::Permission(ask) => crate::permissions::ask(ui, id, ask),
         PageEvent::FindResult(matches) => {
             if ui.state.borrow().active_id() == Some(id) {
                 find_bar::show_result(ui, matches);
@@ -591,6 +616,56 @@ pub fn load_active(ui: &Rc<Ui>) {
 pub fn focus_page(ui: &Rc<Ui>) {
     if let Some(page) = active_page(ui) {
         page.focus();
+    }
+}
+
+/// Close a tab. A link saved in a folder isn't removed, only unloaded (its page is
+/// freed and it shows dimmed); pinned tiles stay too.
+pub fn close_tab(ui: &Rc<Ui>, selected: Selected) {
+    let keep = {
+        let state = ui.state.borrow();
+        state.in_folder(selected) || matches!(selected, Selected::Pinned(_))
+    };
+    if !keep {
+        if let Selected::Tab(i) = selected {
+            ui.state.borrow_mut().close_tab(i);
+        }
+        refresh(ui);
+        return;
+    }
+    let (id, was_active) = {
+        let state = ui.state.borrow();
+        let space = state.space();
+        let id = match selected {
+            Selected::Pinned(i) => space.pinned.get(i).map(|t| t.id),
+            Selected::Tab(i) => space.tabs.get(i).map(|t| t.id),
+        };
+        (id, space.active == Some(selected))
+    };
+    if was_active {
+        ui.state.borrow_mut().select_relative(1);
+    }
+    if let Some(id) = id {
+        unload(ui, id);
+    }
+    refresh(ui);
+}
+
+/// Ctrl+W.
+pub fn close_active(ui: &Rc<Ui>) {
+    let active = ui.state.borrow().space().active;
+    if let Some(selected) = active {
+        close_tab(ui, selected);
+    }
+}
+
+/// Free a tab's page but keep the tab; it loads again when you open it.
+pub fn unload(ui: &Rc<Ui>, id: TabId) {
+    capture_histories(ui);
+    let page = ui.pages.borrow_mut().remove(&id);
+    if let Some(page) = page {
+        ui.stack.remove(&page.widget());
+        page.close();
     }
 }
 

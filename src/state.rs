@@ -34,6 +34,19 @@ pub struct Tab {
     /// file. Filled in when saving; used once when the tab's page is first created.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub history: Option<String>,
+    /// The folder this tab is saved in (see `Folder`), if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<u64>,
+}
+
+/// A folder in a Space's tab list (like Arc): a named group of saved links. Closing a
+/// tab in a folder only unloads it; the link stays until you drag it out.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Folder {
+    pub id: u64,
+    pub name: String,
+    /// Showing its tabs (true) or collapsed.
+    pub open: bool,
 }
 
 impl Tab {
@@ -41,7 +54,7 @@ impl Tab {
     /// search ("rust gtk4"), which goes to the chosen search engine.
     pub fn from_input(input: &str, search: &Search) -> Self {
         let resolved = search.resolve(input);
-        Self { id: TabId::next(), title: resolved.title, url: resolved.url, history: None }
+        Self { id: TabId::next(), title: resolved.title, url: resolved.url, history: None, folder: None }
     }
 
     /// The URL without "https://" and the trailing slash, for showing in the sidebar.
@@ -83,11 +96,34 @@ pub struct Space {
     pub pinned: Vec<Tab>,
     pub tabs: Vec<Tab>,
     pub active: Option<Selected>,
+    /// Folders, in the order they appear at the top of the tab list.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub folders: Vec<Folder>,
 }
 
 impl Space {
     pub fn new(name: &str, icon: &str) -> Self {
-        Self { name: name.into(), icon: icon.into(), color: None, pinned: Vec::new(), tabs: Vec::new(), active: None }
+        Self {
+            name: name.into(),
+            icon: icon.into(),
+            color: None,
+            pinned: Vec::new(),
+            tabs: Vec::new(),
+            active: None,
+            folders: Vec::new(),
+        }
+    }
+
+    /// The tab list in the order it is shown: each folder's tabs (folders in order),
+    /// then the tabs outside folders. Indexes into `tabs`.
+    pub fn list_order(&self) -> Vec<usize> {
+        let mut order = Vec::new();
+        for folder in &self.folders {
+            order.extend(self.tabs.iter().enumerate().filter(|(_, t)| t.folder == Some(folder.id)).map(|(i, _)| i));
+        }
+        let known = |f: Option<u64>| f.is_some_and(|id| self.folders.iter().any(|folder| folder.id == id));
+        order.extend(self.tabs.iter().enumerate().filter(|(_, t)| !known(t.folder)).map(|(i, _)| i));
+        order
     }
 }
 
@@ -277,7 +313,7 @@ impl State {
     /// All tabs of the current Space in sidebar order: pinned first, then the list.
     fn order(&self) -> Vec<Selected> {
         let space = self.space();
-        (0..space.pinned.len()).map(Selected::Pinned).chain((0..space.tabs.len()).map(Selected::Tab)).collect()
+        (0..space.pinned.len()).map(Selected::Pinned).chain(space.list_order().into_iter().map(Selected::Tab)).collect()
     }
 
     /// Ctrl+Tab / Ctrl+Shift+Tab: the next (1) or previous (-1) tab, wrapping around.
@@ -316,6 +352,7 @@ impl State {
     }
 
     /// Ctrl+D: move the active tab to the pinned tiles, or back to the list.
+    #[cfg(test)]
     pub fn toggle_pin(&mut self) {
         let space = self.space_mut();
         match space.active {
@@ -330,6 +367,101 @@ impl State {
                 space.active = Some(Selected::Tab(0));
             }
             _ => {}
+        }
+    }
+
+    /// Drag and drop: move a tab or pinned tile to the pinned tiles (`to_pinned`) or the
+    /// tab list, before position `index` (past the end = at the end). The moved tab
+    /// stays selected if it was. Returns false if nothing moved.
+    pub fn move_tab(&mut self, from: Selected, to_pinned: bool, index: usize) -> bool {
+        self.move_tab_into(from, to_pinned, index, None)
+    }
+
+    /// Like `move_tab`, and when it lands in the tab list, puts it in `folder` (or out of
+    /// any folder with `None`).
+    pub fn move_tab_into(&mut self, from: Selected, to_pinned: bool, index: usize, folder: Option<u64>) -> bool {
+        let space = self.space_mut();
+        let was_active = space.active == Some(from);
+        let active_id = space.active.and_then(|a| match a {
+            Selected::Pinned(i) => space.pinned.get(i).map(|t| t.id),
+            Selected::Tab(i) => space.tabs.get(i).map(|t| t.id),
+        });
+        let tab = match from {
+            Selected::Pinned(i) if i < space.pinned.len() => space.pinned.remove(i),
+            Selected::Tab(i) if i < space.tabs.len() => space.tabs.remove(i),
+            _ => return false,
+        };
+        let mut tab = tab;
+        tab.folder = if to_pinned { None } else { folder };
+        let moved_id = tab.id;
+        // Removing an item before the drop spot shifts the spot by one.
+        let same_list = matches!(from, Selected::Pinned(_)) == to_pinned;
+        let from_index = match from {
+            Selected::Pinned(i) | Selected::Tab(i) => i,
+        };
+        let index = if same_list && from_index < index { index - 1 } else { index };
+        let list = if to_pinned { &mut space.pinned } else { &mut space.tabs };
+        let index = index.min(list.len());
+        list.insert(index, tab);
+        // Keep the same tab selected, wherever it ended up.
+        let target = if was_active { Some(moved_id) } else { active_id };
+        space.active = target.and_then(|id| {
+            space
+                .pinned
+                .iter()
+                .position(|t| t.id == id)
+                .map(Selected::Pinned)
+                .or_else(|| space.tabs.iter().position(|t| t.id == id).map(Selected::Tab))
+        });
+        true
+    }
+
+    /// A new folder in the current Space, holding `tab` if given. Returns its id.
+    pub fn add_folder(&mut self, tab: Option<Selected>) -> u64 {
+        let space = self.space_mut();
+        let id = space.folders.iter().map(|f| f.id).max().unwrap_or(0) + 1;
+        space.folders.push(Folder { id, name: format!("Folder {id}"), open: true });
+        if let Some(from) = tab {
+            let index = space.tabs.len();
+            self.move_tab_into(from, false, index, Some(id));
+        }
+        id
+    }
+
+    pub fn rename_folder(&mut self, id: u64, name: &str) {
+        let name = name.trim();
+        if let Some(folder) = self.space_mut().folders.iter_mut().find(|f| f.id == id)
+            && !name.is_empty()
+        {
+            folder.name = name.chars().take(40).collect();
+        }
+    }
+
+    pub fn toggle_folder(&mut self, id: u64) {
+        if let Some(folder) = self.space_mut().folders.iter_mut().find(|f| f.id == id) {
+            folder.open = !folder.open;
+        }
+    }
+
+    /// Remove a folder; its tabs stay, outside any folder.
+    pub fn delete_folder(&mut self, id: u64) {
+        let space = self.space_mut();
+        space.folders.retain(|f| f.id != id);
+        for tab in &mut space.tabs {
+            if tab.folder == Some(id) {
+                tab.folder = None;
+            }
+        }
+    }
+
+    /// Is this tab saved in a folder (so closing it should only unload it)?
+    pub fn in_folder(&self, selected: Selected) -> bool {
+        let space = self.space();
+        match selected {
+            Selected::Tab(i) => {
+                space.tabs.get(i).and_then(|t| t.folder).is_some_and(|id| space.folders.iter().any(|f| f.id == id))
+            }
+            Selected::Pinned(_) => false,
         }
     }
 
@@ -426,6 +558,44 @@ mod tests {
         state.toggle_pin();
         assert_eq!(state.space().pinned.len(), 3);
         assert_eq!(state.space().active, Some(Selected::Tab(0)));
+    }
+
+    #[test]
+    fn dragging_tabs_to_pinned_and_back() {
+        let mut state = State::demo(Search::default()); // pinned: 3, tabs: 3, Tab(0) active
+        let active = state.active_id();
+        let dragged = state.space().tabs[1].id;
+        // Drag tab 1 onto the pinned tiles, before the first tile.
+        assert!(state.move_tab(Selected::Tab(1), true, 0));
+        assert_eq!(state.space().pinned[0].id, dragged);
+        assert_eq!(state.space().pinned.len(), 4);
+        assert_eq!(state.active_id(), active, "the selected tab must stay selected");
+        // Drag it back to the end of the list.
+        assert!(state.move_tab(Selected::Pinned(0), false, 99));
+        assert_eq!(state.space().tabs.last().unwrap().id, dragged);
+        // Reorder within the list: tab 0 to after tab 1.
+        let first = state.space().tabs[0].id;
+        assert!(state.move_tab(Selected::Tab(0), false, 2));
+        assert_eq!(state.space().tabs[1].id, first);
+        assert!(!state.move_tab(Selected::Tab(42), true, 0));
+    }
+
+    #[test]
+    fn folders_group_tabs_and_keep_order() {
+        let mut state = State::demo(Search::default()); // tabs: arch news, arch wiki, niri
+        let niri = state.space().tabs[2].id;
+        let folder = state.add_folder(Some(Selected::Tab(2)));
+        assert_eq!(state.space().tabs.iter().find(|t| t.id == niri).unwrap().folder, Some(folder));
+        // Folder tabs come first in the shown order.
+        let order = state.space().list_order();
+        assert_eq!(state.space().tabs[order[0]].id, niri);
+        assert!(state.in_folder(Selected::Tab(order[0])));
+        state.rename_folder(folder, "  Linux  ");
+        assert_eq!(state.space().folders[0].name, "Linux");
+        // Deleting the folder keeps the tab.
+        state.delete_folder(folder);
+        assert!(state.space().tabs.iter().any(|t| t.id == niri && t.folder.is_none()));
+        assert!(state.space().folders.is_empty());
     }
 
     #[test]

@@ -41,7 +41,7 @@ pub const ACTIONS: &[Action] = &[
     action("open-location", "Tabs", "Change this tab's address", &["<Ctrl>l", "F6"], |ui| {
         command_bar::open(ui, Mode::EditCurrent)
     }),
-    action("close-tab", "Tabs", "Close tab", &["<Ctrl>w"], |ui| change(ui, |s| s.close_active())),
+    action("close-tab", "Tabs", "Close tab (links in folders are only unloaded)", &["<Ctrl>w"], window::close_active),
     action("reopen-tab", "Tabs", "Reopen closed tab", &["<Ctrl><Shift>t"], |ui| {
         if !ui.state.borrow_mut().reopen_closed() {
             window::toast(ui, "No closed tabs");
@@ -67,11 +67,26 @@ pub const ACTIONS: &[Action] = &[
     action("tab-7", "Tabs", "Go to tab 7", &["<Ctrl>7"], |ui| change(ui, |s| s.select_nth(Some(6)))),
     action("tab-8", "Tabs", "Go to tab 8", &["<Ctrl>8"], |ui| change(ui, |s| s.select_nth(Some(7)))),
     action("tab-last", "Tabs", "Go to last tab", &["<Ctrl>9"], |ui| change(ui, |s| s.select_nth(None))),
-    action("pin-tab", "Tabs", "Pin / unpin tab", &["<Ctrl>d"], |ui| change(ui, |s| s.toggle_pin())),
+    action("pin-tab", "Tabs", "Pin / unpin tab", &["<Ctrl>d"], |ui| {
+        let active = ui.state.borrow().space().active;
+        if let Some(selected) = active {
+            crate::sidebar::pin_or_unpin(ui, selected);
+        }
+    }),
+    action("new-folder", "Tabs", "Put this tab in a new folder", &["<Ctrl><Shift>f"], |ui| {
+        let active = ui.state.borrow().space().active.filter(|s| matches!(s, crate::state::Selected::Tab(_)));
+        ui.state.borrow_mut().add_folder(active);
+        window::toast(ui, "New folder · double-click its name to rename it");
+        window::refresh(ui);
+    }),
     action("move-tab-up", "Tabs", "Move tab up", &["<Ctrl><Shift>Up"], |ui| change(ui, |s| s.move_active(-1))),
     action("move-tab-down", "Tabs", "Move tab down", &["<Ctrl><Shift>Down"], |ui| change(ui, |s| s.move_active(1))),
     action("copy-url", "Tabs", "Copy address", &["<Ctrl><Shift>c"], copy_url),
     action("fill-login", "Page", "Fill saved login", &["<Ctrl><Shift>l"], crate::passwords::fill_shortcut),
+    action("allow", "Page", "Allow (when a site asks)", &["<Ctrl><Shift>y"], |ui| crate::permissions::answer(ui, true)),
+    action("block", "Page", "Block (when a site asks)", &["<Ctrl><Shift>n"], |ui| {
+        crate::permissions::answer(ui, false)
+    }),
     action("save-login", "Page", "Save login (when asked)", &["<Ctrl><Shift>Return"], crate::passwords::save_pending),
     // Page
     action("back", "Page", "Back", &["<Alt>Left"], |ui| with_page(ui, |p| p.go_back())),
@@ -116,6 +131,7 @@ pub const ACTIONS: &[Action] = &[
     action("space-color", "Window", "Change this Space's colour", &["<Ctrl><Alt>c"], theme::cycle_space_color),
     action("new-space", "Window", "New Space", &["<Ctrl><Alt>n"], |ui| change(ui, |s| s.add_space())),
     action("settings", "Window", "Settings", &["<Ctrl>comma"], crate::settings::open),
+    action("history", "Window", "History", &["<Ctrl>h"], |ui| crate::settings::open_page(ui, "stales://history")),
     action("help", "Window", "Show all shortcuts", &["F1"], help::toggle),
 ];
 

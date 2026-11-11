@@ -47,12 +47,23 @@
   button.primary { background: var(--accent); color: var(--accent-fg); border-color: transparent; font-weight: 600; }
   button.danger { color: var(--danger); }
   button.small { padding: 2px 9px; font-size: 12px; }
-  input[type=text], textarea {
+  input[type=text], input[type=number], textarea {
     font: inherit; color: var(--fg); background: var(--card2); border: 1px solid var(--border);
     border-radius: 9px; padding: 7px 10px; width: 100%;
   }
   textarea { font: 12px/1.5 ui-monospace, monospace; min-height: 90px; resize: vertical; }
-  input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  /* Native controls (dropdowns, checkboxes) follow the light/dark look too. */
+  :root { color-scheme: dark; }
+  @media (prefers-color-scheme: light) { :root { color-scheme: light; } }
+  select {
+    -webkit-appearance: none; appearance: none;
+    font: inherit; color: var(--fg); background: var(--card2); border: 1px solid var(--border);
+    border-radius: 9px; padding: 6px 30px 6px 10px; cursor: pointer;
+    background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+    background-position: calc(100% - 15px) 55%, calc(100% - 10px) 55%;
+    background-size: 5px 5px; background-repeat: no-repeat;
+  }
+  input:focus, textarea:focus, select:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .row { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-top: 1px solid var(--border); }
   .row:first-of-type { border-top: none; }
   .row .grow { flex: 1; min-width: 0; }
@@ -240,7 +251,7 @@ function settingsPage() {
   return `<div class="page">
   <nav>
     <a href="#look">Look</a><a href="#spaces">Spaces</a><a href="#search">Search</a>
-    <a href="#keyboard">Keyboard</a><a href="#passwords">Passwords</a><a href="#privacy">Privacy</a><a href="#files">Files</a>
+    <a href="#keyboard">Keyboard</a><a href="#passwords">Passwords</a><a href="#permissions">Site permissions</a><a href="#privacy">Privacy</a><a href="#files">Files</a>
   </nav>
   <main>
     <h1>Settings</h1>
@@ -255,6 +266,14 @@ function settingsPage() {
         <input type="range" id="width" min="180" max="520" step="10" value="${S.sidebar.width}" style="width:200px">
         <button class="small" id="icons-only">Icons only</button>
       </div>
+      <h3>Pinned tiles</h3>
+      <p class="muted">Drag a tab onto the tiles at the top of the sidebar to pin it (or press <kbd>Ctrl</kbd>+<kbd>D</kbd>); drag a tile back into the list to unpin it.</p>
+      <div class="row"><span class="grow">How many tiles a Space can have</span><input type="number" id="pin-max" min="1" max="40" value="${S.sidebar.pinned_max}" style="width:80px"></div>
+      <div class="row"><span class="grow">Tiles per row</span><input type="number" id="pin-row" min="1" max="8" value="${S.sidebar.pinned_per_row}" style="width:80px"></div>
+      <div class="row"><span class="grow">Tile size</span>
+        <span class="keys">${["small", "medium", "large"].map((n) => `<button class="small ${S.sidebar.pinned_size === n ? "primary" : ""}" data-pin-size="${n}">${n}</button>`).join("")}</span></div>
+      <h3>Folders</h3>
+      <div class="row"><span class="grow"><b>Folders in the tab list</b><br><span class="muted">Like Arc: saved groups of links. <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd> puts the current tab in a new folder; right-click a tab or drag it onto a folder; double-click a folder to rename it. Closing a link in a folder only unloads it.</span></span>${toggle("folders", S.sidebar.folders, "Folders")}</div>
       <p class="muted" style="margin-top:10px">Make your own theme: put a CSS file in the themes folder, or tweak anything in <code>user.css</code>; both update live. <button class="small" data-folder="themes">Open themes folder</button></p>
     </section>
 
@@ -295,6 +314,28 @@ function settingsPage() {
       <div id="logins">${loginsHtml()}</div>
       <h3>Never save on</h3>
       <div id="never">${neverHtml()}</div>
+      <h3>How safe are my passwords?</h3>
+      <ul class="muted" style="margin:0;padding-left:18px">
+        <li><b>On disk they are encrypted</b> by your system keyring, with your login password. Stales never writes a password to its own files, logs, history or saved tabs (checked).</li>
+        <li><b>Not hashed, on purpose:</b> a hash can't be turned back into the password, and a password manager has to type the real password for you. Encryption is the right protection here.</li>
+        <li><b>Filled only by you</b> (picking it or <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd>), only on exactly the same site, only over https. Websites can't trigger filling or see other sites' logins.</li>
+        <li><b>In memory only briefly:</b> Stales wipes each copy right after saving or filling and writes no crash files; the system already stops other programs from reading its memory.</li>
+        <li><b>Copied passwords</b> are marked secret for clipboard history tools and cleared from the clipboard after 30 seconds.</li>
+        <li><b>What remains:</b> while you are logged in, your keyring is unlocked, and programs running as you can ask it for passwords (true for every Linux browser and app using the keyring). A site sees a password once it is in its field, like in any browser. To be stricter, put Stales' logins in a separate keyring that locks on its own, or use KeePassXC as your Secret Service.</li>
+      </ul>
+    </section>
+
+    <section id="permissions">
+      <h2>Site permissions</h2>
+      <p class="muted">When a site wants your location, camera, microphone, notifications or screen, Stales asks (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Y</kbd> allow, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>N</kbd> block) and remembers your answer here.</p>
+      ${S.site_permissions.length ? S.site_permissions.map((p) => `<div class="row">
+          <span class="grow">${esc(p.origin.replace(/^https?:\/\//, ""))}<br><span class="muted">${esc(p.what)}</span></span>
+          <button class="small ${p.allow ? "primary" : ""}" data-perm="${esc(p.origin)}" data-kind="${esc(p.kind)}" data-allow="${!p.allow}">${p.allow ? "Allowed" : "Blocked"}</button>
+          <button class="small" data-perm-remove="${esc(p.origin)}" data-kind="${esc(p.kind)}">Forget</button>
+        </div>`).join("") : '<p class="muted">No answers yet.</p>'}
+      <h3>Downloads</h3>
+      <div class="row"><span class="grow"><b>Ask before downloading</b></span>${toggle("dl-ask", S.downloads.ask, "Ask before downloading")}</div>
+      <div class="row"><span class="grow">Folder <span class="muted">(empty: your Downloads folder)</span></span><input type="text" id="dl-folder" style="width:260px" value="${esc(S.downloads.folder)}" placeholder="~/Downloads"></div>
     </section>
 
     <section id="privacy">
@@ -309,7 +350,19 @@ function settingsPage() {
       <h3>Cookies and passwords</h3>
       <p>Cookies from other sites (trackers) are refused, and WebKit's tracking prevention is on. Logins are kept as cookies in <code>${esc(S.paths.data)}</code>, readable only by you.</p>
       <p class="muted">Saved passwords live in your system keyring, not in Stales' files. See Passwords above.</p>
-      <button class="danger" id="clear-data">Delete cookies and site data…</button>
+      <h3>History</h3>
+      <div class="row"><span class="grow"><b>Remember the pages you visit</b><br><span class="muted">${S.history.count} visits saved, only on this computer. See them with <kbd>Ctrl</kbd>+<kbd>H</kbd>.</span></span>${toggle("hist-on", S.history.enabled, "History")}</div>
+      <div class="row"><span class="grow">Forget visits older than <span class="muted">(days, 0 = never)</span></span><input type="number" id="hist-days" min="0" max="3650" value="${S.history.keep_days}" style="width:90px"></div>
+      <div class="row"><span class="grow"><a href="stales://history">Open history</a></span></div>
+      <h3>Delete browsing data</h3>
+      <div class="row"><label class="grow"><input type="checkbox" id="del-history" checked> History</label></div>
+      <div class="row"><label class="grow"><input type="checkbox" id="del-cookies"> Cookies and site data <span class="muted">(logs you out of websites)</span></label></div>
+      <div class="row"><label class="grow"><input type="checkbox" id="del-cache" checked> Cached files and images <span class="muted">(pages load a bit slower once)</span></label></div>
+      <div class="row"><span class="grow">From</span>
+        <select id="del-range">
+          <option value="hour">the last hour</option><option value="day">the last 24 hours</option><option value="week">the last 7 days</option><option value="all">all time</option>
+        </select></div>
+      <button class="danger" id="clear-data" style="margin-top:8px">Delete…</button>
     </section>
 
     <section id="files">
@@ -364,6 +417,16 @@ function wireSettings() {
   on("width", "input", (e) => (document.getElementById("width-label").textContent = e.target.value + " px"));
   on("width", "change", (e) => send("set-sidebar", { width: Number(e.target.value) }));
   on("icons-only", "click", () => send("set-sidebar", { width: 56 }));
+  const pinned = (size) => send("set-pinned", {
+    pinned_max: Number(document.getElementById("pin-max").value),
+    pinned_per_row: Number(document.getElementById("pin-row").value),
+    pinned_size: size || S.sidebar.pinned_size,
+    folders: document.getElementById("folders").checked,
+  });
+  on("pin-max", "change", () => pinned());
+  on("pin-row", "change", () => pinned());
+  on("folders", "change", () => pinned());
+  document.querySelectorAll("[data-pin-size]").forEach((b) => b.addEventListener("click", () => pinned(b.dataset.pinSize)));
   document.querySelectorAll("[data-folder]").forEach((b) => b.addEventListener("click", () => send("open-folder", { which: b.dataset.folder })));
 
   // Spaces
@@ -395,6 +458,13 @@ function wireSettings() {
   }));
   document.querySelectorAll("[data-page-reset]").forEach((b) => b.addEventListener("click", () => send("set-page-key", { action: b.dataset.pageReset, key: b.dataset.default })));
 
+  // Site permissions
+  document.querySelectorAll("[data-perm]").forEach((b) => b.addEventListener("click", () => send("set-permission", { origin: b.dataset.perm, kind: b.dataset.kind, allow: b.dataset.allow === "true" })));
+  document.querySelectorAll("[data-perm-remove]").forEach((b) => b.addEventListener("click", () => send("set-permission", { origin: b.dataset.permRemove, kind: b.dataset.kind, remove: true })));
+  const saveDownloads = () => send("set-downloads", { ask: document.getElementById("dl-ask").checked, folder: document.getElementById("dl-folder").value });
+  on("dl-ask", "change", saveDownloads);
+  on("dl-folder", "change", saveDownloads);
+
   // Passwords
   on("pw-enabled", "change", (e) => send("set-passwords", { on: e.target.checked }));
   wireLogins();
@@ -404,8 +474,17 @@ function wireSettings() {
   on("save-lists", "click", () => send("set-lists", { lists: document.getElementById("lists").value.split("\n") }));
   on("update-lists", "click", () => send("update-lists"));
   document.querySelectorAll("[data-allowed]").forEach((b) => b.addEventListener("click", () => send("remove-allowed", { site: b.dataset.allowed, from: b.dataset.from })));
+  const saveHistory = () => send("set-history", { on: document.getElementById("hist-on").checked, keep_days: Number(document.getElementById("hist-days").value) });
+  on("hist-on", "change", saveHistory);
+  on("hist-days", "change", saveHistory);
   on("clear-data", "click", () => {
-    if (confirm("Delete all cookies, cache and site data? You will be logged out of every website.")) send("clear-data");
+    const what = { history: document.getElementById("del-history").checked, cookies: document.getElementById("del-cookies").checked, cache: document.getElementById("del-cache").checked };
+    const range = document.getElementById("del-range").value;
+    const names = [what.history && "history", what.cookies && "cookies and site data", what.cache && "cached files"].filter(Boolean);
+    if (!names.length) return toast("Choose what to delete");
+    const label = document.getElementById("del-range").selectedOptions[0].textContent;
+    const warn = what.cookies ? " You will be logged out of websites." : "";
+    if (confirm(`Delete ${names.join(", ")} from ${label}? This can't be undone.${warn}`)) send("clear-data", { ...what, range });
   });
 }
 

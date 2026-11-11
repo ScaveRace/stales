@@ -38,6 +38,8 @@ pub struct Sidebar {
     pub url_label: gtk::Label,
     pub space_label: gtk::Label,
     pub pinned: gtk::FlowBox,
+    /// "Drop here to pin" box, shown while you drag a tab and nothing is pinned yet.
+    pub pin_hint: gtk::Label,
     pub new_tab: gtk::Button,
     pub tabs: gtk::ListBox,
     pub spaces: gtk::Box,
@@ -123,6 +125,10 @@ pub fn build() -> Sidebar {
     pinned.set_column_spacing(6);
     pinned.set_row_spacing(6);
     root.append(&pinned);
+    let pin_hint = gtk::Label::new(Some("Drop here to pin"));
+    pin_hint.add_css_class("st-pin-hint");
+    pin_hint.set_visible(false);
+    root.append(&pin_hint);
 
     let divider = gtk::Separator::new(gtk::Orientation::Horizontal);
     divider.add_css_class("st-divider");
@@ -167,6 +173,7 @@ pub fn build() -> Sidebar {
         url_label,
         space_label,
         pinned,
+        pin_hint,
         new_tab,
         tabs,
         spaces,
@@ -185,7 +192,7 @@ pub fn set_compact(sb: &Sidebar, compact: bool) {
     sb.space_label.set_visible(!compact);
     sb.new_tab_label.set_visible(!compact);
     sb.pinned.set_min_children_per_line(1);
-    sb.pinned.set_max_children_per_line(per_line);
+    let _ = per_line; // the width per row comes from the settings (see refresh)
     if compact {
         sb.root.add_css_class("compact");
     } else {
@@ -225,13 +232,22 @@ pub fn connect(ui: &Rc<Ui>) {
     let u = ui.clone();
     sb.new_tab.connect_clicked(move |_| command_bar::open(&u, Mode::NewTab));
 
+    // Each row is named "tab:<index>" or "folder:<id>".
     let u = ui.clone();
     sb.tabs.connect_row_activated(move |_, row| {
-        if let Ok(index) = usize::try_from(row.index()) {
+        let name = row.widget_name();
+        if let Some(index) = name.strip_prefix("tab:").and_then(|n| n.parse().ok()) {
             u.state.borrow_mut().select(Selected::Tab(index));
-            window::refresh_later(&u);
+        } else if let Some(id) = name.strip_prefix("folder:").and_then(|n| n.parse().ok()) {
+            u.state.borrow_mut().toggle_folder(id);
         }
+        window::refresh_later(&u);
     });
+    // Dropping below the last tab puts it at the end of the list, outside folders.
+    let end = Drop::List { index: usize::MAX, folder: None };
+    drop_target(ui, &sb.tabs, end);
+    drop_target(ui, &sb.pin_hint, Drop::Pinned(usize::MAX));
+    drop_target(ui, &sb.pinned, Drop::Pinned(usize::MAX));
 }
 
 /// Rebuild the parts of the sidebar that depend on the state.
@@ -248,14 +264,25 @@ pub fn refresh(ui: &Rc<Ui>) {
 
     blocker::show_shield(ui, &sb.shield, state.active_tab().map(|t| t.url.as_str()));
 
-    // Pinned tiles
+    // Pinned tiles (drag a tab here to pin it; drag a tile onto another to reorder)
+    let settings = ui.config.borrow().sidebar.clone();
+    let compact = sb.compact.get();
     sb.pinned.remove_all();
     sb.pinned.set_visible(!space.pinned.is_empty());
+    sb.pinned.set_max_children_per_line(if compact { 1 } else { settings.pinned_per_row.clamp(1, 8) });
     for (i, tab) in space.pinned.iter().enumerate() {
         let tile = gtk::Button::new();
         tile.add_css_class("st-pinned");
+        tile.add_css_class(match settings.pinned_size.as_str() {
+            "small" => "small",
+            "large" => "large",
+            _ => "medium",
+        });
         if space.active == Some(Selected::Pinned(i)) {
             tile.add_css_class("active");
+        }
+        if !ui.pages.borrow().contains_key(&tab.id) {
+            tile.add_css_class("asleep");
         }
         tile.set_tooltip_text(Some(&tab.title));
         tile.set_child(Some(&favicon(ui, tab)));
@@ -264,43 +291,34 @@ pub fn refresh(ui: &Rc<Ui>) {
             u.state.borrow_mut().select(Selected::Pinned(i));
             window::refresh_later(&u);
         });
+        drag_source(ui, &tile, Selected::Pinned(i));
+        drop_target(ui, &tile, Drop::Pinned(i));
+        tab_menu(ui, &tile, Selected::Pinned(i));
         sb.pinned.insert(&tile, -1);
     }
 
-    // Tab list
+    // Tab list: folders first (each with its tabs), then the other tabs.
     sb.tabs.remove_all();
-    for (i, tab) in space.tabs.iter().enumerate() {
-        let row = gtk::ListBoxRow::new();
-        row.add_css_class("st-tab");
-        if space.active == Some(Selected::Tab(i)) {
-            row.add_css_class("active");
+    let folders_on = settings.folders;
+    let order = space.list_order();
+    if folders_on {
+        for folder in &space.folders {
+            let inside: Vec<usize> =
+                order.iter().copied().filter(|&i| space.tabs[i].folder == Some(folder.id)).collect();
+            sb.tabs.append(&folder_row(ui, folder, inside.len(), compact));
+            if folder.open {
+                for i in inside {
+                    sb.tabs.append(&tab_row(ui, space, i, compact, true));
+                }
+            }
         }
-        let compact = sb.compact.get();
-        row.set_tooltip_text(Some(if compact { &tab.title } else { &tab.url }));
-        let content = gtk::Box::new(gtk::Orientation::Horizontal, 10);
-        content.append(&favicon(ui, tab));
-        row.set_child(Some(&content));
-        sb.tabs.append(&row);
-        if compact {
-            continue;
+    }
+    for i in order {
+        let in_known_folder =
+            folders_on && space.tabs[i].folder.is_some_and(|id| space.folders.iter().any(|f| f.id == id));
+        if !in_known_folder {
+            sb.tabs.append(&tab_row(ui, space, i, compact, false));
         }
-
-        let title = gtk::Label::new(Some(&tab.title));
-        title.set_xalign(0.0);
-        title.set_hexpand(true);
-        title.set_ellipsize(EllipsizeMode::End);
-        title.set_max_width_chars(1);
-
-        let close = icon_button("window-close-symbolic", "Close tab (Ctrl+W)");
-        close.add_css_class("st-close");
-        let u = ui.clone();
-        close.connect_clicked(move |_| {
-            u.state.borrow_mut().close_tab(i);
-            window::refresh_later(&u);
-        });
-
-        content.append(&title);
-        content.append(&close);
     }
 
     // Space switcher
@@ -329,4 +347,302 @@ pub fn refresh(ui: &Rc<Ui>) {
         window::refresh_later(&u);
     });
     sb.spaces.append(&add);
+}
+
+// ---------- Rows of the tab list ----------
+
+fn tab_row(ui: &Rc<Ui>, space: &crate::state::Space, i: usize, compact: bool, in_folder: bool) -> gtk::ListBoxRow {
+    let tab = &space.tabs[i];
+    let row = gtk::ListBoxRow::new();
+    row.set_widget_name(&format!("tab:{i}"));
+    row.add_css_class("st-tab");
+    if in_folder {
+        row.add_css_class("in-folder");
+    }
+    if space.active == Some(Selected::Tab(i)) {
+        row.add_css_class("active");
+    }
+    // Not loaded right now (restored, or a folder link you closed): shown dimmed.
+    if !ui.pages.borrow().contains_key(&tab.id) {
+        row.add_css_class("asleep");
+    }
+    row.set_tooltip_text(Some(if compact { &tab.title } else { &tab.url }));
+    let content = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    content.append(&favicon(ui, tab));
+    row.set_child(Some(&content));
+    drag_source(ui, &row, Selected::Tab(i));
+    drop_target(ui, &row, Drop::List { index: i, folder: tab.folder });
+    tab_menu(ui, &row, Selected::Tab(i));
+    if compact {
+        return row;
+    }
+    let title = gtk::Label::new(Some(&tab.title));
+    title.set_xalign(0.0);
+    title.set_hexpand(true);
+    title.set_ellipsize(EllipsizeMode::End);
+    title.set_max_width_chars(1);
+    let tooltip = if in_folder { "Unload (stays in the folder)" } else { "Close tab (Ctrl+W)" };
+    let close = icon_button("window-close-symbolic", tooltip);
+    close.add_css_class("st-close");
+    let u = ui.clone();
+    close.connect_clicked(move |_| window::close_tab(&u, Selected::Tab(i)));
+    content.append(&title);
+    content.append(&close);
+    row
+}
+
+fn folder_row(ui: &Rc<Ui>, folder: &crate::state::Folder, count: usize, compact: bool) -> gtk::ListBoxRow {
+    let row = gtk::ListBoxRow::new();
+    row.set_widget_name(&format!("folder:{}", folder.id));
+    row.add_css_class("st-folder");
+    row.set_tooltip_text(Some(&format!("{} ({count}) · click to open or close · double-click to rename", folder.name)));
+    let content = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    let icon = if folder.open { "folder-open-symbolic" } else { "folder-symbolic" };
+    content.append(&gtk::Image::from_icon_name(icon));
+    if !compact {
+        let name = gtk::Label::new(Some(&folder.name));
+        name.set_xalign(0.0);
+        name.set_hexpand(true);
+        name.set_ellipsize(EllipsizeMode::End);
+        name.set_max_width_chars(1);
+        let count = gtk::Label::new(Some(&count.to_string()));
+        count.add_css_class("st-muted");
+        content.append(&name);
+        content.append(&count);
+        // Double-click: rename in place.
+        let click = gtk::GestureClick::new();
+        let (u, id, current) = (ui.clone(), folder.id, folder.name.clone());
+        let (content_box, name_label) = (content.clone(), name.clone());
+        click.connect_pressed(move |_, presses, _, _| {
+            if presses == 2 {
+                rename_in_place(&u, id, &current, &content_box, &name_label);
+            }
+        });
+        row.add_controller(click);
+    }
+    row.set_child(Some(&content));
+    drop_target(ui, &row, Drop::Folder(folder.id));
+    folder_menu(ui, &row, folder.id);
+    row
+}
+
+fn rename_in_place(ui: &Rc<Ui>, id: u64, current: &str, content: &gtk::Box, label: &gtk::Label) {
+    let entry = gtk::Entry::new();
+    entry.set_text(current);
+    entry.set_hexpand(true);
+    content.insert_child_after(&entry, Some(label));
+    label.set_visible(false);
+    entry.grab_focus();
+    let u = ui.clone();
+    entry.connect_activate(move |entry| {
+        u.state.borrow_mut().rename_folder(id, &entry.text());
+        window::refresh_later(&u);
+    });
+    let keys = gtk::EventControllerKey::new();
+    let u = ui.clone();
+    keys.connect_key_pressed(move |_, key, _, _| {
+        if key == gtk::gdk::Key::Escape {
+            window::refresh_later(&u);
+            return gtk::glib::Propagation::Stop;
+        }
+        gtk::glib::Propagation::Proceed
+    });
+    entry.add_controller(keys);
+}
+
+// ---------- Right-click menus ----------
+
+/// A menu entry: its label and what clicking it does.
+type MenuItem = (String, Box<dyn Fn()>);
+
+/// A small menu of buttons, opened by right-clicking `widget`.
+fn context_menu(widget: &impl IsA<gtk::Widget>, items: Vec<MenuItem>) {
+    let menu_box = gtk::Box::new(gtk::Orientation::Vertical, 2);
+    let popover = gtk::Popover::new();
+    popover.add_css_class("st-menu");
+    popover.set_child(Some(&menu_box));
+    popover.set_parent(widget);
+    popover.set_has_arrow(false);
+    let items: Rc<Vec<MenuItem>> = Rc::new(items);
+    for (n, (label, _)) in items.iter().enumerate() {
+        let button = gtk::Button::with_label(label);
+        button.add_css_class("st-menu-item");
+        let (items, pop) = (items.clone(), popover.clone());
+        button.connect_clicked(move |_| {
+            pop.popdown();
+            (items[n].1)();
+        });
+        menu_box.append(&button);
+    }
+    let click = gtk::GestureClick::new();
+    click.set_button(3);
+    let pop = popover.clone();
+    click.connect_pressed(move |_, _, x, y| {
+        pop.set_pointing_to(Some(&gtk::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+        pop.popup();
+    });
+    widget.add_controller(click);
+    // The popover belongs to the widget; take it away when the widget goes.
+    widget.connect_destroy(move |_| popover.unparent());
+}
+
+fn tab_menu(ui: &Rc<Ui>, widget: &impl IsA<gtk::Widget>, selected: Selected) {
+    let mut items: Vec<MenuItem> = Vec::new();
+    let pinned = matches!(selected, Selected::Pinned(_));
+    let u = ui.clone();
+    items.push((if pinned { "Unpin" } else { "Pin" }.into(), Box::new(move || pin_or_unpin(&u, selected))));
+    if ui.config.borrow().sidebar.folders {
+        let u = ui.clone();
+        items.push((
+            "New folder with this tab".into(),
+            Box::new(move || {
+                u.state.borrow_mut().add_folder(Some(selected));
+                window::toast(&u, "New folder · double-click its name to rename it");
+                window::refresh_later(&u);
+            }),
+        ));
+        let folders: Vec<(u64, String)> =
+            ui.state.borrow().space().folders.iter().map(|f| (f.id, f.name.clone())).collect();
+        for (id, name) in folders {
+            let u = ui.clone();
+            items.push((
+                format!("Move to “{name}”"),
+                Box::new(move || {
+                    u.state.borrow_mut().move_tab_into(selected, false, usize::MAX, Some(id));
+                    window::refresh_later(&u);
+                }),
+            ));
+        }
+        if ui.state.borrow().in_folder(selected) {
+            let u = ui.clone();
+            items.push((
+                "Take out of folder".into(),
+                Box::new(move || {
+                    u.state.borrow_mut().move_tab_into(selected, false, usize::MAX, None);
+                    window::refresh_later(&u);
+                }),
+            ));
+        }
+    }
+    let u = ui.clone();
+    items.push(("Close".into(), Box::new(move || window::close_tab(&u, selected))));
+    context_menu(widget, items);
+}
+
+fn folder_menu(ui: &Rc<Ui>, widget: &gtk::ListBoxRow, id: u64) {
+    let u = ui.clone();
+    let row = widget.clone();
+    let rename: Box<dyn Fn()> = Box::new(move || {
+        // Same as double-clicking the name.
+        let content = row.child().and_downcast::<gtk::Box>();
+        let label =
+            content.as_ref().and_then(|c| c.first_child()).and_then(|w| w.next_sibling()).and_downcast::<gtk::Label>();
+        if let (Some(content), Some(label)) = (content, label) {
+            rename_in_place(&u, id, &label.text(), &content, &label);
+        }
+    });
+    let u = ui.clone();
+    let delete: Box<dyn Fn()> = Box::new(move || {
+        u.state.borrow_mut().delete_folder(id);
+        window::toast(&u, "Folder removed; its tabs are still here");
+        window::refresh_later(&u);
+    });
+    context_menu(widget, vec![("Rename".into(), rename), ("Delete folder (keep tabs)".into(), delete)]);
+}
+
+// ---------- Drag and drop ----------
+
+/// Where something was dropped.
+#[derive(Clone, Copy)]
+pub enum Drop {
+    /// Onto the pinned tiles, before tile `index` (usize::MAX: at the end).
+    Pinned(usize),
+    /// Onto the tab list, before tab `index`, into `folder` (or none).
+    List { index: usize, folder: Option<u64> },
+    /// Onto a folder's name: into that folder.
+    Folder(u64),
+}
+
+fn drag_value(selected: Selected) -> String {
+    match selected {
+        Selected::Pinned(i) => format!("stales-pinned:{i}"),
+        Selected::Tab(i) => format!("stales-tab:{i}"),
+    }
+}
+
+fn parse_drag(value: &str) -> Option<Selected> {
+    if let Some(i) = value.strip_prefix("stales-pinned:") {
+        return i.parse().ok().map(Selected::Pinned);
+    }
+    value.strip_prefix("stales-tab:").and_then(|i| i.parse().ok()).map(Selected::Tab)
+}
+
+pub fn drag_source(ui: &Rc<Ui>, widget: &impl IsA<gtk::Widget>, selected: Selected) {
+    let source = gtk::DragSource::new();
+    source.set_actions(gtk::gdk::DragAction::MOVE);
+    source.connect_prepare(move |_, _, _| Some(gtk::gdk::ContentProvider::for_value(&drag_value(selected).to_value())));
+    // While dragging with nothing pinned, show where to drop to pin.
+    let u = ui.clone();
+    source.connect_drag_begin(move |_, _| {
+        let empty = u.state.borrow().space().pinned.is_empty();
+        u.sidebar.pin_hint.set_visible(empty && !u.sidebar.compact.get());
+    });
+    let u = ui.clone();
+    source.connect_drag_end(move |_, _, _| u.sidebar.pin_hint.set_visible(false));
+    widget.add_controller(source);
+}
+
+pub fn drop_target(ui: &Rc<Ui>, widget: &impl IsA<gtk::Widget>, spot: Drop) {
+    let target = gtk::DropTarget::new(String::static_type(), gtk::gdk::DragAction::MOVE);
+    let w = widget.clone().upcast::<gtk::Widget>();
+    target.connect_enter(move |_, _, _| {
+        w.add_css_class("drop-here");
+        gtk::gdk::DragAction::MOVE
+    });
+    let w = widget.clone().upcast::<gtk::Widget>();
+    target.connect_leave(move |_| w.remove_css_class("drop-here"));
+    let u = ui.clone();
+    target.connect_drop(move |_, value, _, _| {
+        let Some(from) = value.get::<String>().ok().and_then(|v| parse_drag(&v)) else { return false };
+        dropped(&u, from, spot)
+    });
+    widget.add_controller(target);
+}
+
+fn dropped(ui: &Rc<Ui>, from: Selected, spot: Drop) -> bool {
+    let max = ui.config.borrow().sidebar.pinned_max;
+    let moved = {
+        let mut state = ui.state.borrow_mut();
+        match spot {
+            Drop::Pinned(index) => {
+                let full = state.space().pinned.len() >= max && !matches!(from, Selected::Pinned(_));
+                if full {
+                    drop(state);
+                    window::toast(ui, &format!("Pinned tiles are full ({max}); change the limit in Settings"));
+                    return false;
+                }
+                state.move_tab(from, true, index)
+            }
+            Drop::List { index, folder } => state.move_tab_into(from, false, index, folder),
+            Drop::Folder(id) => state.move_tab_into(from, false, usize::MAX, Some(id)),
+        }
+    };
+    if moved {
+        window::refresh_later(ui);
+    }
+    moved
+}
+
+/// Pin a tab (if there is room) or unpin a tile. Also Ctrl+D.
+pub fn pin_or_unpin(ui: &Rc<Ui>, selected: Selected) {
+    match selected {
+        Selected::Pinned(_) => {
+            ui.state.borrow_mut().move_tab(selected, false, 0);
+        }
+        Selected::Tab(_) => {
+            dropped(ui, selected, Drop::Pinned(usize::MAX));
+            return;
+        }
+    }
+    window::refresh_later(ui);
 }

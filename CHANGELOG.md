@@ -26,3 +26,17 @@ First public version.
   pick an account or press Ctrl+Shift+L; logins listed in Settings
 - Data files are private to your user (cookies, tabs, settings)
 - Ad blocker splits very large filter selections into several WebKit rule lists
+- Ad blocker uses uBlock Origin's default lists plus optional cookie-banner and pop-up
+  lists; the first page after a start waits for the rules
+- Fixed: a hiding exception in uBlock's "unbreak" list was converted into "hide every
+  SVG", which removed YouTube's logo and icons (and icons elsewhere)
+- Identifies as a current Safari (WebKitGTK claimed "Safari 60.5", so sites served
+  their slow fallback version); back/forward cache and touchpad swipe navigation
+- Permission prompts for location, camera, microphone, notifications, screen sharing,
+  embedded-site cookies and downloads, remembered per site; downloads actually work now
+- Drag tabs to pin, reorder or move into folders; pinned tile count, per-row and size
+  settings; Arc-style folders of saved links; dimmed look for unloaded tabs
+- History (Ctrl+H) with search, retention setting and command-bar suggestions;
+  delete history, cookies or cache by time range
+- Password hardening: passwords wiped from memory after use, no core dumps,
+  copied passwords marked secret for clipboard managers

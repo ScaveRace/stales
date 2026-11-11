@@ -13,6 +13,10 @@ use webkit6::{
     WebView, WebViewSessionState,
 };
 
+/// What Stales tells websites it is: a current Safari on Linux.
+pub const DEFAULT_USER_AGENT: &str =
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15";
+
 /// Name the compiled ad blocker rules are stored under.
 const BLOCKLIST_ID: &str = "stales-blocker";
 
@@ -51,7 +55,7 @@ impl Blocking {
 /// Histories bigger than this aren't saved (keeps the session file small).
 const MAX_HISTORY_BYTES: usize = 256 * 1024;
 
-use super::{Engine, Page, PageEvent, PageKeys};
+use super::{DownloadEvent, Engine, Page, PageEvent, PageKeys, Permission, PermissionAsk};
 
 /// The keyboard script runs in its own JavaScript "world", hidden from the page's scripts.
 const WORLD: &str = "stales";
@@ -62,12 +66,14 @@ pub struct WebKitEngine {
     /// keys.js with its settings in front.
     keys_script: RefCell<String>,
     blocking: Rc<Blocking>,
+    /// How Stales introduces itself to websites.
+    user_agent: String,
     /// Where compiled ad blocker rules are kept between runs.
     filter_store: UserContentFilterStore,
 }
 
 impl WebKitEngine {
-    pub fn new(keys: &PageKeys) -> Self {
+    pub fn new(keys: &PageKeys, user_agent: &str) -> Self {
         let settings = serde_json::to_string(keys).expect("key settings are always valid JSON");
         let keys_script = RefCell::new(format!("const STALES = {settings};\n{}", include_str!("keys.js")));
         let data_dir = glib::user_data_dir().join("stales");
@@ -88,8 +94,45 @@ impl WebKitEngine {
         }
 
         let filter_store = UserContentFilterStore::new(&path_str(&data_dir.join("filters")));
-        Self { session, keys_script, blocking: Rc::default(), filter_store }
+        let user_agent = if user_agent.trim().is_empty() { DEFAULT_USER_AGENT } else { user_agent.trim() }.to_string();
+        Self { session, keys_script, blocking: Rc::default(), user_agent, filter_store }
     }
+}
+
+/// What a WebKit permission request is about. `None`: refuse without asking.
+/// An empty list: allow without asking.
+fn permission_kinds(request: &webkit6::PermissionRequest) -> Option<Vec<Permission>> {
+    use webkit6::*;
+    if request.is::<GeolocationPermissionRequest>() {
+        return Some(vec![Permission::Location]);
+    }
+    if request.is::<NotificationPermissionRequest>() {
+        return Some(vec![Permission::Notifications]);
+    }
+    if let Some(media) = request.downcast_ref::<UserMediaPermissionRequest>() {
+        let mut kinds = Vec::new();
+        if media.is_for_video_device() {
+            kinds.push(Permission::Camera);
+        }
+        if media.is_for_audio_device() {
+            kinds.push(Permission::Microphone);
+        }
+        // Neither camera nor microphone: sharing your screen.
+        if kinds.is_empty() {
+            kinds.push(Permission::ScreenShare);
+        }
+        return Some(kinds);
+    }
+    if request.is::<DeviceInfoPermissionRequest>() {
+        return Some(vec![Permission::DeviceList]);
+    }
+    if request.is::<WebsiteDataAccessPermissionRequest>() {
+        return Some(vec![Permission::EmbeddedCookies]);
+    }
+    if request.is::<PointerLockPermissionRequest>() {
+        return Some(Vec::new());
+    }
+    None
 }
 
 /// keys.js as a script for every frame of every page, in its own hidden world.
@@ -155,6 +198,14 @@ impl Engine for WebKitEngine {
         if let Some(settings) = WebViewExt::settings(&view) {
             settings.set_enable_developer_extras(true);
             settings.set_enable_smooth_scrolling(true);
+            // Tell sites we are a current Safari (which is what WebKit is). WebKitGTK's
+            // own string claimed "Safari 60.5", so sites like YouTube served their slow
+            // compatibility version for ancient browsers.
+            settings.set_user_agent(Some(&self.user_agent));
+            // Speed: keep pages you leave ready, so Back is instant.
+            settings.set_enable_page_cache(true);
+            // Two-finger swipe on the touchpad goes back and forward.
+            settings.set_enable_back_forward_navigation_gestures(true);
         }
 
         // Turn WebKit's signals into our own `PageEvent`s.
@@ -181,6 +232,58 @@ impl Engine for WebKitEngine {
         });
         let f = on_event.clone();
         view.connect_close(move |_| f(PageEvent::CloseRequested));
+
+        // Files WebKit can't show (zip, pdf you want to keep, installers, …) or that the
+        // server marks as attachments become downloads. WebKit's default is to silently
+        // ignore them, so without this nothing would happen when you click.
+        view.connect_decide_policy(|_, decision, kind| {
+            if kind != webkit6::PolicyDecisionType::Response {
+                return false;
+            }
+            let Some(response) = decision.downcast_ref::<webkit6::ResponsePolicyDecision>() else { return false };
+            // Only the page itself becomes a download, never an embedded frame (ads and
+            // widgets often send such responses; they must not ask you anything).
+            if !response.is_main_frame_main_resource() {
+                return false;
+            }
+            let Some(reply) = response.response() else { return false };
+            // WebKit also reports empty replies (status 0, no type), e.g. when a load is
+            // interrupted; those are not files. A real download has a 2xx status and a type.
+            let real = (200..300).contains(&reply.status_code())
+                && reply.mime_type().is_some_and(|m| !m.is_empty())
+                && reply.uri().is_some_and(|u| !u.is_empty());
+            if !real {
+                return false;
+            }
+            let attachment = reply
+                .http_headers()
+                .and_then(|h| h.one("Content-Disposition"))
+                .is_some_and(|value| value.to_lowercase().starts_with("attachment"));
+            if attachment || !response.is_mime_type_supported() {
+                decision.download();
+                return true;
+            }
+            false
+        });
+
+        // A site asks for your location, camera, … : turn WebKit's request into a
+        // question for the browser, and answer WebKit when you have decided.
+        let f = on_event.clone();
+        view.connect_permission_request(move |_, request| {
+            let Some(kinds) = permission_kinds(request) else {
+                // Things Stales never offers (e.g. DRM keys) are refused quietly.
+                request.deny();
+                return true;
+            };
+            if kinds.is_empty() {
+                request.allow(); // harmless, e.g. locking the mouse pointer in a game
+                return true;
+            }
+            let request = request.clone();
+            let reply = Box::new(move |allowed: bool| if allowed { request.allow() } else { request.deny() });
+            f(PageEvent::Permission(PermissionAsk { kinds, reply }));
+            true
+        });
         if let Some(finder) = view.find_controller() {
             let f = on_event.clone();
             finder.connect_found_text(move |_, count| f(PageEvent::FindResult(Some(count))));
@@ -229,13 +332,80 @@ impl Engine for WebKitEngine {
         self.keys_script.replace(script);
     }
 
-    fn clear_site_data(&self, done: Box<dyn FnOnce(Result<(), String>)>) {
+    fn set_download_handler(&self, on_event: Box<dyn Fn(DownloadEvent)>) {
+        let on_event: Rc<dyn Fn(DownloadEvent)> = Rc::from(on_event);
+        self.session.connect_download_started(move |_, download| {
+            let url = download.request().and_then(|r| r.uri()).map(|u| u.to_string()).unwrap_or_default();
+            let f = on_event.clone();
+            download.connect_decide_destination(move |download, suggested| {
+                let size = download.response().map(|r| r.content_length()).filter(|n| *n > 0);
+                let d = download.clone();
+                let decide = Box::new(move |path: Option<std::path::PathBuf>| match path {
+                    Some(path) => d.set_destination(&path.to_string_lossy()),
+                    None => d.cancel(),
+                });
+                f(DownloadEvent::Ask { file_name: suggested.to_string(), url: url.clone(), size, decide });
+                true // we set the destination (or cancel) once you have answered
+            });
+            let f = on_event.clone();
+            download.connect_finished(move |download| {
+                if let Some(path) = download.destination() {
+                    f(DownloadEvent::Finished(std::path::PathBuf::from(path.as_str())));
+                }
+            });
+            let f = on_event.clone();
+            download.connect_failed(move |download, error| {
+                // Cancelling counts as failing; that's not worth a message.
+                if !error.matches(webkit6::DownloadError::CancelledByUser) {
+                    let file_name = download.destination().map(|d| d.to_string()).unwrap_or_default();
+                    f(DownloadEvent::Failed { file_name, error: error.to_string() });
+                }
+            });
+        });
+    }
+
+    fn set_notification_permissions(&self, allowed: Vec<String>, blocked: Vec<String>) {
+        let Some(context) = webkit6::WebContext::default() else { return };
+        let allowed: Vec<_> = allowed.iter().map(|o| webkit6::SecurityOrigin::for_uri(o)).collect();
+        let blocked: Vec<_> = blocked.iter().map(|o| webkit6::SecurityOrigin::for_uri(o)).collect();
+        let allowed: Vec<&webkit6::SecurityOrigin> = allowed.iter().collect();
+        let blocked: Vec<&webkit6::SecurityOrigin> = blocked.iter().collect();
+        context.initialize_notification_permissions(&allowed, &blocked);
+    }
+
+    fn clear_site_data(
+        &self,
+        cookies: bool,
+        cache: bool,
+        since_seconds: Option<u64>,
+        done: Box<dyn FnOnce(Result<(), String>)>,
+    ) {
+        use webkit6::WebsiteDataTypes as T;
         let Some(data) = self.session.website_data_manager() else { return };
-        let types = webkit6::WebsiteDataTypes::ALL;
+        let mut types = T::empty();
+        if cookies {
+            types |= T::COOKIES
+                | T::LOCAL_STORAGE
+                | T::SESSION_STORAGE
+                | T::INDEXEDDB_DATABASES
+                | T::OFFLINE_APPLICATION_CACHE
+                | T::SERVICE_WORKER_REGISTRATIONS
+                | T::HSTS_CACHE
+                | T::ITP
+                | T::DOM_CACHE;
+        }
+        if cache {
+            types |= T::MEMORY_CACHE | T::DISK_CACHE;
+        }
+        if types.is_empty() {
+            return done(Ok(()));
+        }
+        // WebKit counts in microseconds; 0 means "everything".
+        let timespan = glib::TimeSpan(since_seconds.map_or(0, |s| (s as i64).saturating_mul(1_000_000)));
         // WebKit wants a callback that could run on any thread; it actually runs on
         // ours, and ThreadGuard checks that.
         let done = glib::thread_guard::ThreadGuard::new(done);
-        data.clear(types, glib::TimeSpan(0), None::<&gtk::gio::Cancellable>, move |result| {
+        data.clear(types, timespan, None::<&gtk::gio::Cancellable>, move |result| {
             (done.into_inner())(result.map_err(|e| e.to_string()));
         });
     }

@@ -34,14 +34,32 @@
   }
 
   // ---------- Is there a login form? ----------
+  // Pages like YouTube change thousands of times; checking on every change would slow
+  // them down. So: look at most twice a second, cheaply (no layout work unless a
+  // password field exists), and stop watching once a login form was found.
+  let observer = null;
+  let pending = false;
   function check() {
-    if (!asked && passwordFields().length) {
+    pending = false;
+    if (asked) return;
+    if (document.querySelector('input[type="password"]') && passwordFields().length) {
       asked = true;
+      if (observer) observer.disconnect();
       send({ type: "logins-wanted" });
     }
   }
-  document.addEventListener("DOMContentLoaded", check);
-  new MutationObserver(() => check()).observe(document.documentElement, { childList: true, subtree: true });
+  function checkSoon() {
+    if (pending || asked) return;
+    pending = true;
+    setTimeout(check, 500);
+  }
+  document.addEventListener("DOMContentLoaded", () => {
+    check();
+    if (!asked) {
+      observer = new MutationObserver(checkSoon);
+      observer.observe(document.documentElement, { childList: true, subtree: true });
+    }
+  });
 
   // ---------- Suggestion under the field ----------
   let box = null;

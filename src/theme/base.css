@@ -117,6 +117,9 @@ window.stales {
   transition: background 120ms;
 }
 .st-pinned:hover { background: @st_active; }
+.st-pinned.small { min-height: 34px; }
+.st-pinned.large { min-height: 58px; }
+.st-pinned.asleep image, .st-pinned.asleep label { opacity: 0.55; }
 .st-pinned.active {
   background: @st_active;
   box-shadow: inset 0 0 0 1px @st_border;
@@ -392,3 +395,51 @@ row.st-result-primary {
   color: @st_page;
   font-weight: 600;
 }
+
+/* Tabs that aren't loaded right now (restored, or a folder link you closed) */
+row.st-tab.asleep > box > label { opacity: 0.6; }
+row.st-tab.asleep > box > image, row.st-tab.asleep > box > .st-favicon { opacity: 0.6; }
+
+/* Folders in the tab list */
+row.st-folder {
+  border-radius: 10px;
+  padding: 5px 4px 5px 8px;
+  margin-bottom: 2px;
+  font-size: 13px;
+  font-weight: 600;
+  color: @st_fg;
+}
+row.st-folder:hover { background: @st_hover; }
+row.st-tab.in-folder { margin-left: 14px; }
+
+/* Drag and drop: where it will land */
+.drop-here {
+  box-shadow: inset 0 0 0 2px @st_accent;
+  border-radius: 10px;
+}
+.st-pin-hint {
+  border: 2px dashed @st_border;
+  border-radius: 12px;
+  padding: 12px;
+  color: @st_muted;
+  font-size: 12px;
+}
+.st-pin-hint.drop-here { border-color: @st_accent; color: @st_fg; box-shadow: none; }
+
+/* Right-click menus */
+popover.st-menu > contents {
+  background: @st_surface;
+  border: 1px solid @st_border;
+  border-radius: 10px;
+  padding: 4px;
+}
+.st-menu-item {
+  background: none;
+  border: none;
+  box-shadow: none;
+  color: @st_fg;
+  padding: 6px 12px;
+  border-radius: 7px;
+}
+.st-menu-item:hover { background: @st_hover; }
+.st-menu-item label { font-weight: normal; }

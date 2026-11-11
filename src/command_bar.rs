@@ -31,6 +31,8 @@ pub struct CommandBar {
     pub mode: Cell<Mode>,
     /// What each row in `results` does when picked.
     matches: RefCell<Vec<Pick>>,
+    /// Addresses of the history rows in `results`.
+    visits: RefCell<Vec<String>>,
 }
 
 /// A row in the results list.
@@ -40,6 +42,8 @@ enum Pick {
     Typed,
     /// Switch to an open tab.
     Tab(Selected),
+    /// A page from your history: open it.
+    Visit(usize),
 }
 
 pub fn build() -> CommandBar {
@@ -64,7 +68,14 @@ pub fn build() -> CommandBar {
     scrim.append(&card);
     scrim.set_visible(false);
 
-    CommandBar { scrim, entry, results, mode: Cell::new(Mode::NewTab), matches: RefCell::new(Vec::new()) }
+    CommandBar {
+        scrim,
+        entry,
+        results,
+        mode: Cell::new(Mode::NewTab),
+        matches: RefCell::new(Vec::new()),
+        visits: RefCell::new(Vec::new()),
+    }
 }
 
 pub fn connect(ui: &Rc<Ui>) {
@@ -101,6 +112,13 @@ pub fn connect(ui: &Rc<Ui>) {
                 u.state.borrow_mut().select(selected);
                 close(&u);
                 window::refresh_later(&u);
+            }
+            Some(Pick::Visit(n)) => {
+                let url = u.command.visits.borrow().get(n).cloned();
+                if let Some(url) = url {
+                    u.command.entry.set_text(&url);
+                    submit(&u);
+                }
             }
             None => {}
         }
@@ -201,6 +219,7 @@ fn update_results(ui: &Rc<Ui>) {
     matches.push(Pick::Typed);
 
     let space = state.space();
+    let open_urls: Vec<&str> = space.pinned.iter().chain(&space.tabs).map(|t| t.url.as_str()).collect();
     let pinned = space.pinned.iter().enumerate().map(|(i, t)| (Selected::Pinned(i), t));
     let tabs = space.tabs.iter().enumerate().map(|(i, t)| (Selected::Tab(i), t));
     for (selected, tab) in pinned.chain(tabs) {
@@ -232,6 +251,41 @@ fn update_results(ui: &Rc<Ui>) {
         row.set_child(Some(&content));
         cmd.results.append(&row);
         matches.push(Pick::Tab(selected));
+    }
+
+    // Then pages from your history (not already open as a tab).
+    let mut visits = cmd.visits.borrow_mut();
+    visits.clear();
+    for visit in ui.history.borrow().suggestions(&typed, 12) {
+        if matches.len() >= 10 {
+            break;
+        }
+        if open_urls.contains(&visit.url.as_str()) {
+            continue;
+        }
+        let title = gtk::Label::new(Some(&visit.title));
+        title.set_xalign(0.0);
+        title.set_ellipsize(EllipsizeMode::End);
+        title.set_max_width_chars(40);
+        let url = gtk::Label::new(Some(visit.url.trim_start_matches("https://").trim_end_matches('/')));
+        url.add_css_class("st-muted");
+        url.set_xalign(1.0);
+        url.set_hexpand(true);
+        url.set_ellipsize(EllipsizeMode::Start);
+        url.set_max_width_chars(1);
+        let hint = gtk::Label::new(Some("History"));
+        hint.add_css_class("st-muted");
+        let content = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+        content.append(&gtk::Image::from_icon_name("document-open-recent-symbolic"));
+        content.append(&title);
+        content.append(&url);
+        content.append(&hint);
+        let row = gtk::ListBoxRow::new();
+        row.add_css_class("st-result");
+        row.set_child(Some(&content));
+        cmd.results.append(&row);
+        matches.push(Pick::Visit(visits.len()));
+        visits.push(visit.url);
     }
     cmd.results.set_visible(!matches.is_empty());
 }

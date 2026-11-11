@@ -21,7 +21,9 @@ Arc showed how pleasant a browser can be when tabs live in a sidebar and the bro
 ## Features
 
 **Sidebar or tabs on top**
-- Arc-style sidebar with **Spaces** (separate sets of tabs), **pinned tabs** and a **command bar** (<kbd>Ctrl</kbd>+<kbd>T</kbd>).
+- Arc-style sidebar with **Spaces** (separate sets of tabs), **pinned tiles** and a **command bar** (<kbd>Ctrl</kbd>+<kbd>T</kbd>).
+- **Drag and drop:** drag a tab onto the tiles to pin it, onto a folder to save it there, or anywhere in the list to reorder. Choose how many tiles, how many per row and their size.
+- **Folders** like in Arc: saved groups of links in the tab list (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd>, right-click, or drag).
 - Drag the sidebar to any width, or shrink it to **icons only** (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd>).
 - Prefer classic tabs along the top? <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>L</kbd> switches.
 
@@ -34,6 +36,9 @@ Arc showed how pleasant a browser can be when tabs live in a sidebar and the bro
 - A built-in **ad and tracker blocker** uses the same filter lists as uBlock Origin (130 000+ rules). They're applied inside the web engine, so it's faster than an extension. The shield button turns it off per site.
 - Third-party cookies are refused, and WebKit's tracking prevention is on.
 - No accounts, no telemetry, no sync servers.
+- **Sites ask first:** location, camera, microphone, notifications, screen sharing and downloads need your "Allow" (remembered per site, changeable in Settings).
+- **History** you control (<kbd>Ctrl</kbd>+<kbd>H</kbd>): searchable, kept for as many days as you choose, or off. Delete history, cookies or cache for the last hour, day, week or all time.
+- **Password manager** using your system keyring: saves after you log in, fills only on the same secure site when you ask.
 - Your cookies, tabs and settings are stored readable by you only.
 
 **Make it yours**
@@ -135,6 +140,7 @@ The most useful keys; <kbd>F1</kbd> inside Stales shows them all, including any 
 |---|---|
 | <kbd>Ctrl</kbd>+<kbd>T</kbd> / <kbd>Ctrl</kbd>+<kbd>L</kbd> | New tab or search / change this tab's address |
 | <kbd>Ctrl</kbd>+<kbd>,</kbd> / <kbd>F1</kbd> | Settings / every shortcut |
+| <kbd>Ctrl</kbd>+<kbd>H</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> | History / fill saved login |
 | <kbd>Ctrl</kbd>+<kbd>Tab</kbd>, <kbd>Ctrl</kbd>+<kbd>1</kbd>…<kbd>9</kbd> | Switch tabs |
 | <kbd>Ctrl</kbd>+<kbd>W</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd> | Close / reopen a tab |
 | <kbd>Ctrl</kbd>+<kbd>D</kbd> | Pin or unpin a tab |
@@ -150,7 +156,7 @@ The most useful keys; <kbd>F1</kbd> inside Stales shows them all, including any 
 
 - **No Chrome or Firefox extensions.** WebKit can't run them. The things most people install extensions for (ad blocking, dark pages, keyboard control) are built in.
 - **Netflix, Spotify and other DRM video** usually won't play. WebKitGTK on Linux has no Widevine, which affects every WebKit browser on Linux.
-- **No password manager yet.** Stales doesn't save passwords; use KeePassXC, Bitwarden or similar.
+- **Passwords** are kept by your system keyring (GNOME Keyring, KWallet or KeePassXC), encrypted with your login, never in Stales' files. Stales wipes passwords from its memory after use, writes no crash dumps, and marks copied passwords as secret for clipboard managers. While you're logged in, programs running as you can ask the keyring for them; that's how the Linux keyring works for every app.
 - **The engine is WebKitGTK,** the engine of Safari and GNOME Web. It's light on memory and fits Linux well. A few sites tuned only for Chrome may misbehave.
 
 ## How it's built

@@ -16,6 +16,14 @@ theme = "midnight"
 # Ctrl+Alt+L switches while you browse; like the theme, that choice is remembered.
 layout = "arc"
 
+[sidebar]
+# Pinned tiles at the top of each Space: drag a tab there to pin it.
+pinned_max = 9          # how many tiles a Space can have
+pinned_per_row = 3      # tiles per row
+pinned_size = "medium"  # "small", "medium" or "large"
+# Folders in the tab list (like Arc): right-click or Ctrl+Shift+F to make one.
+folders = true
+
 [search]
 # Which search engine to use when you type something that isn't an address.
 # Built in: DuckDuckGo, Google, Brave Search, Startpage, Bing, Ecosia, Qwant, Kagi, Mojeek
@@ -63,6 +71,25 @@ exclude = ["mail.google.com", "docs.google.com"]
 # (GNOME Keyring, KWallet, or KeePassXC), encrypted with your login, never in Stales' files.
 # Fill a login with Ctrl+Shift+L or by picking it under the field.
 enabled = true
+
+[history]
+# Remember the pages you visit (see them with Ctrl+H). Stored only on this computer,
+# readable only by you.
+enabled = true
+# Forget visits older than this many days (0 keeps everything).
+keep_days = 90
+
+[downloads]
+# Ask before each download ("Save" / "Cancel").
+ask = true
+# Where downloads go. Empty means your Downloads folder.
+folder = ""
+
+[web]
+# How Stales introduces itself to websites. Leave empty for the default
+# (a current Safari, which is what Stales' engine is). Only change it if a site
+# refuses to work, e.g. to pretend to be Chrome.
+user_agent = ""
 
 [blocker]
 # Built-in ad and tracker blocker. It uses the same filter lists as uBlock Origin,

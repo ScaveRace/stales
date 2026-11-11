@@ -51,7 +51,14 @@ struct Stamp {
     /// How many rule lists WebKit compiled (see `convert`).
     #[serde(default)]
     parts: usize,
+    /// Which version of `convert` made the rules (see CONVERSION_VERSION).
+    #[serde(default)]
+    conversion: u32,
 }
+
+/// Bump this whenever `convert` changes, so everyone's rules are rebuilt with the fix.
+/// 2: hiding exceptions (`#@#`) are skipped.
+const CONVERSION_VERSION: u32 = 2;
 
 /// WebKit refuses rule lists with more than about 150 000 rules.
 const MAX_RULES_PER_PART: usize = 140_000;
@@ -78,7 +85,9 @@ pub fn start(ui: &Rc<Ui>) {
     }
     let stamp = read_stamp();
     let max_age = u64::from(config.update_days.max(1)) * 24 * 60 * 60;
-    let outdated = stamp.lists != config.lists || now().saturating_sub(stamp.updated) > max_age;
+    let outdated = stamp.lists != config.lists
+        || stamp.conversion != CONVERSION_VERSION
+        || now().saturating_sub(stamp.updated) > max_age;
 
     set_status(ui, Status::Working("loading rules".into()));
     // Rules from last time load in well under a second; let pages wait for them so
@@ -165,7 +174,13 @@ pub fn update(ui: &Rc<Ui>) {
                 let Some(ui) = weak.upgrade() else { return };
                 match result {
                     Ok(()) => {
-                        let stamp = Stamp { updated: now(), lists, rules: count, parts: part_count };
+                        let stamp = Stamp {
+                            updated: now(),
+                            lists,
+                            rules: count,
+                            parts: part_count,
+                            conversion: CONVERSION_VERSION,
+                        };
                         if let Ok(text) = toml::to_string(&stamp) {
                             let _ = std::fs::write(stamp_path(), text);
                         }
@@ -205,6 +220,11 @@ fn convert(lists: Vec<String>) -> (Vec<String>, usize) {
     use adblock::content_blocking::CbType;
     let mut set = adblock::lists::FilterSet::new(true);
     for text in lists {
+        // Skip "don't hide this here" exceptions (`site#@#selector`). WebKit's format
+        // can't express them, and the converter turns them into the opposite: uBlock's
+        // `redtube.com#@#svg` became "hide every SVG on every other site", which
+        // removed all icons from YouTube and many other sites.
+        let text: String = text.lines().filter(|line| !line.contains("#@#")).collect::<Vec<_>>().join("\n");
         set.add_filter_list(text, adblock::lists::ParseOptions::default());
     }
     let rules = set.into_content_blocking().map(|(rules, _)| rules).unwrap_or_default();
@@ -317,6 +337,14 @@ mod tests {
     }
 
     #[test]
+    fn hiding_exceptions_never_become_hiding_rules() {
+        // This exact line from uBlock's "unbreak" list used to hide every SVG on the web.
+        let (parts, count) = convert(vec!["redtube.com#@#svg\n||ads.example^\n".into()]);
+        assert!(count >= 1);
+        assert!(!parts[0].contains("\"svg\""), "an exception turned into a hiding rule: {}", parts[0]);
+    }
+
+    #[test]
     fn big_lists_are_split_and_every_part_keeps_the_exceptions() {
         let mut list = String::from("@@||good.example^\n");
         for i in 0..(MAX_RULES_PER_PART + 5000) {
@@ -338,4 +366,19 @@ mod tests {
         assert!(!host_matches("notexample.com", "example.com"));
         assert!(!host_matches("example.com", ""));
     }
+}
+
+/// Developer tool, not a test: writes the converted rules for the lists in
+/// $STALES_DUMP_LISTS (one path per line) to $STALES_DUMP_OUT, to debug sites the
+/// blocker breaks. Run with `cargo test dump_rules -- --ignored`.
+#[cfg(test)]
+#[test]
+#[ignore]
+fn dump_rules() {
+    let lists = std::env::var("STALES_DUMP_LISTS").expect("set STALES_DUMP_LISTS");
+    let texts =
+        std::fs::read_to_string(lists).unwrap().lines().map(|path| std::fs::read_to_string(path).unwrap()).collect();
+    let (parts, count) = convert(texts);
+    std::fs::write(std::env::var("STALES_DUMP_OUT").unwrap(), parts.join("\n")).unwrap();
+    eprintln!("{count} rules in {} parts", parts.len());
 }
