@@ -6,6 +6,7 @@ rust-version = "1.92"
 license = "GPL-3.0-or-later"
 description = "A fast, keyboard-driven, fully customisable web browser for Linux with an Arc-style sidebar"
 readme = "README.md"
+repository = "https://github.com/ScaveRace/stales"
 keywords = ["browser", "webkit", "gtk4", "linux", "arc"]
 categories = ["gui", "web-programming"]
 

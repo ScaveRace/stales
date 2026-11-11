@@ -7,13 +7,13 @@ pkgver=0.1.0
 pkgrel=1
 pkgdesc="Fast, keyboard-driven web browser with an Arc-style sidebar"
 arch=('x86_64' 'aarch64')
-url="REPO_URL"
+url="https://github.com/ScaveRace/stales"
 license=('GPL-3.0-or-later')
 depends=('gtk4' 'webkitgtk-6.0' 'glib2' 'libsoup3')
 makedepends=('cargo' 'git')
 provides=('stales')
 conflicts=('stales')
-source=("stales::git+REPO_URL.git")
+source=("stales::git+https://github.com/ScaveRace/stales.git")
 sha256sums=('SKIP')
 options=('!lto')
 

@@ -16,6 +16,8 @@
       <li>Themes, per-Space colours and your own CSS with live reload</li>
     </ul>
   </description>
+  <url type="homepage">https://github.com/ScaveRace/stales</url>
+  <url type="bugtracker">https://github.com/ScaveRace/stales/issues</url>
   <launchable type="desktop-id">dev.stales.Stales.desktop</launchable>
   <categories><category>Network</category><category>WebBrowser</category></categories>
   <releases>

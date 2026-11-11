@@ -66,7 +66,7 @@ Arc showed how pleasant a browser can be when tabs live in a sidebar and the bro
 
 ```bash
 sudo pacman -S --needed rust gtk4 webkitgtk-6.0 git
-git clone REPO_URL.git && cd stales
+git clone https://github.com/ScaveRace/stales.git && cd stales
 ./install.sh
 ```
 
@@ -76,7 +76,7 @@ Or build a package with the included recipe: `cd packaging/arch && makepkg -si`.
 
 ```bash
 sudo apt install cargo libgtk-4-dev libwebkitgtk-6.0-dev git
-git clone REPO_URL.git && cd stales
+git clone https://github.com/ScaveRace/stales.git && cd stales
 ./install.sh
 ```
 
