@@ -1,0 +1,34 @@
+/* Your own Stales styles.
+ *
+ * Anything here goes on top of the theme. Save the file and Stales updates at once.
+ * Delete the file to get this explanation back.
+ *
+ * Colours you can change (remove the comment marks around a line to use it):
+ *
+ *   @define-color st_bg      #111113;   window and sidebar
+ *   @define-color st_page    #0a0a0b;   behind web pages
+ *   @define-color st_surface #1a1a1d;   command bar, find bar, cheat sheet
+ *   @define-color st_fg      #e4e4e7;   text
+ *   @define-color st_muted   #85858f;   quieter text and icons
+ *   @define-color st_hover   rgba(255, 255, 255, 0.05);
+ *   @define-color st_active  rgba(255, 255, 255, 0.10);   selected tab
+ *   @define-color st_border  rgba(255, 255, 255, 0.06);
+ *   @define-color st_accent  #e4e4e7;   loading bar, shield, active Space
+ *
+ * More examples:
+ *
+ *   A gradient behind everything:
+ *     window.stales { background: linear-gradient(160deg, #1e3a5f, #3b1e5f); }
+ *
+ *   Square corners on the page:
+ *     .st-content { border-radius: 0; }
+ *
+ *   Bigger tab titles:
+ *     row.st-tab { font-size: 15px; }
+ *
+ * To make a whole theme, copy one of the built-in themes (in the Stales source,
+ * src/theme/themes/) to ~/.config/stales/themes/<name>.css, change it, and pick
+ * it with Ctrl+Alt+T or in config.toml. A file named like a built-in theme
+ * (e.g. midnight.css) replaces that theme.
+ * Put "stales: light" in a comment if it is a light theme.
+ */

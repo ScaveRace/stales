@@ -1,0 +1,13 @@
+/* Graphite: soft dark grey with a blue accent.
+ * stales: dark */
+@define-color st_bg      #1c1f24;
+@define-color st_page    #111317;
+@define-color st_surface #262a31;
+@define-color st_fg      #e6e9ef;
+@define-color st_muted   #8b93a1;
+@define-color st_hover   rgba(255, 255, 255, 0.06);
+@define-color st_active  rgba(110, 168, 254, 0.16);
+@define-color st_border  rgba(255, 255, 255, 0.07);
+@define-color st_accent  #6ea8fe;
+@define-color st_scrim   rgba(0, 0, 0, 0.45);
+@define-color st_shadow  rgba(0, 0, 0, 0.5);

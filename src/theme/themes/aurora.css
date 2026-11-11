@@ -1,0 +1,17 @@
+/* Aurora: colourful. A purple-to-teal gradient behind everything, pink accent.
+ * stales: dark */
+@define-color st_bg      #22183f;
+@define-color st_page    #0b0b12;
+@define-color st_surface #231c3d;
+@define-color st_fg      #f3efff;
+@define-color st_muted   #a9a0cc;
+@define-color st_hover   rgba(255, 255, 255, 0.08);
+@define-color st_active  rgba(255, 122, 198, 0.20);
+@define-color st_border  rgba(255, 255, 255, 0.10);
+@define-color st_accent  #ff7ac6;
+@define-color st_scrim   rgba(10, 5, 30, 0.5);
+@define-color st_shadow  rgba(10, 5, 30, 0.6);
+
+window.stales {
+  background: linear-gradient(160deg, #3a1f6b 0%, #23306b 50%, #0f3b4d 100%);
+}

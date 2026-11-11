@@ -1,0 +1,17 @@
+/* Ember: warm dark brown with an orange glow.
+ * stales: dark */
+@define-color st_bg      #1b1411;
+@define-color st_page    #0d0a09;
+@define-color st_surface #261d19;
+@define-color st_fg      #f6ede7;
+@define-color st_muted   #ab9a8f;
+@define-color st_hover   rgba(255, 220, 200, 0.06);
+@define-color st_active  rgba(255, 138, 61, 0.18);
+@define-color st_border  rgba(255, 220, 200, 0.08);
+@define-color st_accent  #ff8a3d;
+@define-color st_scrim   rgba(0, 0, 0, 0.45);
+@define-color st_shadow  rgba(0, 0, 0, 0.5);
+
+window.stales {
+  background: linear-gradient(180deg, #2a1a12 0%, #1b1411 60%);
+}

@@ -1,0 +1,87 @@
+# Stales settings
+#
+# Edit this file and restart Stales to apply changes.
+# Lines starting with # are comments. Delete this file to get the defaults back.
+
+[appearance]
+# Built in: midnight (dark, no colour), paper (light), graphite (grey, blue accent),
+# aurora (colourful gradient), ember (warm). Ctrl+Alt+T switches while you browse;
+# that choice is remembered and wins over this line until you delete
+# "theme" from ~/.local/share/stales/ui.toml.
+# Your own themes: ~/.config/stales/themes/<name>.css. Small tweaks: ~/.config/stales/user.css.
+# Give each Space its own colour with Ctrl+Alt+C.
+theme = "midnight"
+
+# Where the tabs are: "arc" (in the sidebar on the left) or "classic" (along the top).
+# Ctrl+Alt+L switches while you browse; like the theme, that choice is remembered.
+layout = "arc"
+
+[search]
+# Which search engine to use when you type something that isn't an address.
+# Built in: DuckDuckGo, Google, Brave Search, Startpage, Bing, Ecosia, Qwant, Kagi, Mojeek
+# (and site searches: Wikipedia, YouTube, GitHub, Arch Wiki, AUR, docs.rs)
+engine = "DuckDuckGo"
+
+# Search with another engine just once by typing its keyword with @ first:
+#   @d DuckDuckGo   @g Google    @br Brave     @s Startpage  @b Bing
+#   @e Ecosia       @q Qwant     @k Kagi       @m Mojeek
+#   @w Wikipedia    @y YouTube   @gh GitHub    @aw Arch Wiki @aur AUR   @rs docs.rs
+# Example: "@w Linus Torvalds" searches Wikipedia.
+
+# Add your own engines. %s is where the search words go.
+# [[search.custom]]
+# name = "My SearXNG"
+# keyword = "sx"
+# url = "https://searx.example.org/search?q=%s"
+
+[keys]
+# Press F1 in Stales to see every shortcut.
+
+# Single-key commands on web pages, like Vimium or qutebrowser:
+# j/k scroll, f shows letters on every link so you can click it by typing,
+# H/L back/forward, J/K switch tabs, / find, ? help, and more.
+# They never fire while you type in a text field (press Esc to leave one),
+# and "i" sends every key to the page until you press Esc.
+vim = true
+
+# Sites that have their own single-key shortcuts, where Stales stays out of the way.
+exclude = ["mail.google.com", "docs.google.com"]
+
+# Change browser shortcuts: action = ["keys", ...]
+# Keys are written like <Ctrl>t, <Ctrl><Shift>t, <Alt>Left, F5.
+# [keys.bindings]
+# toggle-sidebar = ["<Ctrl>s", "<Ctrl>b"]
+# close-tab = ["<Ctrl>w", "<Ctrl>q"]
+
+# Change single-key commands on pages: "key" = "action" ("none" turns a key off).
+# [keys.page]
+# "j" = "scroll-down"
+# "x" = "none"
+
+[passwords]
+# Offer to save logins and fill them in. Passwords are kept in your system keyring
+# (GNOME Keyring, KWallet, or KeePassXC), encrypted with your login, never in Stales' files.
+# Fill a login with Ctrl+Shift+L or by picking it under the field.
+enabled = true
+
+[blocker]
+# Built-in ad and tracker blocker. It uses the same filter lists as uBlock Origin,
+# applied inside the web engine (faster than an extension).
+enabled = true
+
+# Filter lists in Adblock Plus / uBlock format. They are downloaded and refreshed automatically.
+lists = [
+  "https://easylist.to/easylist/easylist.txt",
+  "https://easylist.to/easylist/easyprivacy.txt",
+  "https://ublockorigin.github.io/uAssets/filters/filters.txt",
+  # Hide cookie banners too (can occasionally hide part of a site):
+  # "https://secure.fanboy.co.nz/fanboy-cookiemonster.txt",
+  # Hide social media buttons and widgets:
+  # "https://easylist.to/easylist/fanboy-social.txt",
+]
+
+# Download fresh lists after this many days.
+update_days = 7
+
+# Sites where nothing is blocked. You can also click the shield or press Ctrl+Shift+B.
+allow = []

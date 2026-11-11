@@ -1,0 +1,394 @@
+/* Stales base styles: the layout and shapes of everything.
+ *
+ * Colours come from the theme (src/theme/themes/*.css, or your own in
+ * ~/.config/stales/themes/). A theme sets the @st_… colours below and can
+ * override any rule in this file. The values here are only fallbacks.
+ */
+
+@define-color st_bg        #111113;  /* window and sidebar */
+@define-color st_page      #0a0a0b;  /* the card where web pages show */
+@define-color st_surface   #1a1a1d;  /* command bar, find bar, cheat sheet */
+@define-color st_fg        #e4e4e7;  /* main text */
+@define-color st_muted     #85858f;  /* secondary text and icons */
+@define-color st_hover     rgba(255, 255, 255, 0.05);
+@define-color st_active    rgba(255, 255, 255, 0.10);
+@define-color st_border    rgba(255, 255, 255, 0.06);
+@define-color st_accent    #e4e4e7;  /* loading bar, shield, active Space */
+@define-color st_scrim     @st_shadow;  /* darkens the page behind popups */
+@define-color st_shadow    rgba(0, 0, 0, 0.5);
+
+window.stales {
+  background: @st_bg;
+  color: @st_fg;
+}
+
+/* ---------- Sidebar ---------- */
+
+.st-sidebar {
+  padding: 10px 0 10px 10px;
+}
+
+/* Icons-only sidebar */
+.st-sidebar.compact {
+  padding-left: 8px;
+}
+.st-sidebar.compact row.st-tab {
+  padding: 7px 0;
+}
+.st-sidebar.compact row.st-tab > box {
+  margin-left: 10px;
+}
+.st-sidebar.compact .st-newtab {
+  padding: 6px 0;
+}
+.st-sidebar.compact .st-newtab > box {
+  margin-left: 4px;
+}
+.st-sidebar.compact .st-pinned {
+  min-height: 38px;
+}
+
+/* The invisible strip you drag to resize the sidebar. It shows a faint line on hover. */
+.st-resize-handle {
+  min-width: 8px;
+  margin-right: -2px;
+  background: none;
+  transition: background 120ms;
+}
+.st-resize-handle:hover {
+  background: linear-gradient(to right, transparent 3px, @st_active 3px, @st_active 5px, transparent 5px);
+}
+
+.st-icon-btn {
+  background: none;
+  border: none;
+  box-shadow: none;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  border-radius: 8px;
+  color: @st_muted;
+  transition: background 120ms, color 120ms;
+}
+.st-icon-btn:hover {
+  background: @st_hover;
+  color: @st_fg;
+}
+
+/* The shield is a little brighter while it is blocking. */
+.st-shield.on {
+  color: @st_accent;
+}
+
+.st-urlbar {
+  background: @st_hover;
+  border: none;
+  box-shadow: none;
+  border-radius: 10px;
+  padding: 8px 12px;
+  color: @st_muted;
+  font-size: 13px;
+}
+.st-urlbar:hover {
+  background: @st_active;
+  color: @st_fg;
+}
+
+.st-space-name {
+  margin: 6px 4px 0 4px;
+  color: @st_muted;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.st-pinned-grid {
+  background: none;
+}
+.st-pinned-grid > flowboxchild {
+  padding: 0;
+  background: none;
+}
+.st-pinned {
+  background: @st_hover;
+  border: none;
+  box-shadow: none;
+  border-radius: 12px;
+  min-height: 44px;
+  transition: background 120ms;
+}
+.st-pinned:hover { background: @st_active; }
+.st-pinned.active {
+  background: @st_active;
+  box-shadow: inset 0 0 0 1px @st_border;
+}
+
+.st-divider {
+  background: @st_border;
+  margin: 2px 6px;
+}
+
+.st-favicon {
+  min-width: 18px;
+  min-height: 18px;
+  border-radius: 5px;
+  background: @st_active;
+  color: @st_fg;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.st-favicon-img {
+  min-width: 18px;
+  min-height: 18px;
+}
+
+.st-newtab {
+  background: none;
+  border: none;
+  box-shadow: none;
+  border-radius: 10px;
+  padding: 6px 8px;
+  color: @st_muted;
+}
+.st-newtab:hover {
+  background: @st_hover;
+  color: @st_fg;
+}
+
+list.st-tabs {
+  background: none;
+}
+row.st-tab {
+  border-radius: 10px;
+  padding: 5px 4px 5px 8px;
+  margin-bottom: 2px;
+  background: none;
+  font-size: 13px;
+  transition: background 120ms;
+}
+row.st-tab:hover { background: @st_hover; }
+row.st-tab.active { background: @st_active; }
+
+/* The close button only shows on hover or on the active tab. */
+row.st-tab .st-close {
+  min-width: 22px;
+  min-height: 22px;
+  opacity: 0;
+}
+row.st-tab:hover .st-close,
+row.st-tab.active .st-close {
+  opacity: 1;
+}
+
+.st-space-btn {
+  background: none;
+  border: none;
+  box-shadow: none;
+  min-width: 30px;
+  min-height: 30px;
+  padding: 0;
+  border-radius: 8px;
+  color: @st_muted;
+}
+.st-space-btn:hover { background: @st_hover; color: @st_fg; }
+.st-space-btn.active { background: @st_active; color: @st_accent; }
+
+/* ---------- Page area ---------- */
+
+.st-content stack { background: @st_page; }
+
+.st-content-frame {
+  padding: 8px 8px 8px 2px;
+}
+.st-content-frame.no-sidebar {
+  padding-left: 8px;
+}
+.st-content-frame.classic {
+  padding: 6px 8px 8px 8px;
+}
+.st-content {
+  background: @st_page;
+  border-radius: 12px;
+  box-shadow: 0 0 0 1px @st_border;
+}
+.st-progress trough,
+.st-progress progress {
+  min-height: 2px;
+  border-radius: 0;
+}
+.st-progress trough { background: none; }
+.st-progress progress { background: @st_accent; }
+
+.st-content-title {
+  font-size: 26px;
+  font-weight: 700;
+}
+.st-content-url {
+  color: @st_muted;
+}
+.st-content-hint {
+  margin-top: 18px;
+  color: @st_muted;
+  font-size: 12px;
+  opacity: 0.6;
+}
+
+/* ---------- Command bar ---------- */
+
+.st-scrim {
+  background: @st_scrim;
+}
+.st-command {
+  background: @st_surface;
+  border-radius: 14px;
+  padding: 6px;
+  border: 1px solid @st_border;
+  box-shadow: 0 24px 64px @st_shadow;
+}
+.st-command entry {
+  background: none;
+  border: none;
+  outline: none;
+  box-shadow: none;
+  min-height: 46px;
+  padding: 0 12px;
+  font-size: 17px;
+  color: @st_fg;
+}
+list.st-results {
+  background: none;
+  border-top: 1px solid @st_border;
+  padding-top: 4px;
+}
+row.st-result {
+  border-radius: 9px;
+  padding: 8px 12px;
+}
+row.st-result:hover,
+row.st-result:focus {
+  background: @st_active;
+}
+row.st-result-primary {
+  background: @st_hover;
+}
+.st-muted {
+  color: @st_muted;
+  font-size: 12px;
+}
+
+/* ---------- Find bar, messages, cheat sheet ---------- */
+
+.st-findbar {
+  background: @st_surface;
+  border: 1px solid @st_border;
+  border-radius: 12px;
+  padding: 4px 12px;
+  box-shadow: 0 12px 32px @st_shadow;
+  color: @st_muted;
+}
+.st-findbar entry {
+  background: none;
+  border: none;
+  outline: none;
+  box-shadow: none;
+  color: @st_fg;
+  min-height: 34px;
+}
+
+.st-toast {
+  background: @st_surface;
+  color: @st_fg;
+  border: 1px solid @st_border;
+  border-radius: 10px;
+  padding: 8px 16px;
+  font-size: 13px;
+  box-shadow: 0 12px 32px @st_shadow;
+}
+
+.st-help {
+  background: @st_surface;
+  border: 1px solid @st_border;
+  border-radius: 16px;
+  padding: 24px 28px;
+  box-shadow: 0 24px 64px @st_shadow;
+}
+.st-help flowboxchild {
+  background: none;
+  padding: 0;
+}
+.st-help-title {
+  font-size: 18px;
+  font-weight: 700;
+}
+.st-help-heading {
+  margin-top: 8px;
+  color: @st_muted;
+  font-size: 12px;
+  font-weight: 700;
+}
+.st-help-key {
+  font-family: monospace;
+  font-size: 12px;
+  color: @st_fg;
+  background: @st_hover;
+  border-radius: 6px;
+  padding: 2px 7px;
+}
+
+/* ---------- Classic layout: tabs along the top ---------- */
+
+.st-topbar {
+  padding: 8px 8px 0 8px;
+}
+.st-topbar separator.st-divider {
+  margin: 8px 4px;
+}
+.st-toptabs > separator {
+  margin: 6px 2px;
+}
+.st-toptab {
+  min-width: 120px;
+  min-height: 32px;
+  padding: 0 4px 0 10px;
+  border-radius: 10px;
+  font-size: 13px;
+  transition: background 120ms;
+}
+.st-toptab.pinned {
+  min-width: 0;
+  padding: 0 10px;
+}
+.st-toptab:hover { background: @st_hover; }
+.st-toptab.active { background: @st_active; }
+.st-toptab .st-close {
+  min-width: 22px;
+  min-height: 22px;
+  opacity: 0;
+}
+.st-toptab:hover .st-close,
+.st-toptab.active .st-close {
+  opacity: 1;
+}
+.st-toolbar .st-urlbar {
+  padding: 6px 12px;
+  margin: 0 6px;
+}
+
+/* "Save login?" bar at the top of the page */
+.st-prompt {
+  background: @st_surface;
+  color: @st_fg;
+  border: 1px solid @st_border;
+  border-radius: 12px;
+  padding: 6px 8px 6px 14px;
+  box-shadow: 0 12px 32px @st_shadow;
+}
+.st-prompt button {
+  border-radius: 8px;
+  padding: 4px 12px;
+}
+.st-prompt button.st-prompt-main {
+  background: @st_accent;
+  color: @st_page;
+  font-weight: 600;
+}

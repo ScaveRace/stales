@@ -1,0 +1,495 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title}</title>
+<style>
+  :root {
+    --bg: #0a0a0b; --card: #141416; --card2: #1b1b1e; --border: rgba(255,255,255,.08);
+    --fg: #e4e4e7; --muted: #8a8a93; --key: rgba(255,255,255,.08); --hover: rgba(255,255,255,.06);
+    --accent: #e4e4e7; --accent-fg: #0a0a0b; --danger: #f87171;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #ffffff; --card: #f4f4f5; --card2: #e9e9ec; --border: rgba(0,0,0,.09);
+      --fg: #18181b; --muted: #6b6b74; --key: rgba(0,0,0,.06); --hover: rgba(0,0,0,.05);
+      --accent: #18181b; --accent-fg: #ffffff; --danger: #dc2626;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--bg); }
+  body { margin: 0; color: var(--fg); font: 14px/1.55 system-ui, -apple-system, "Inter", sans-serif; }
+  h1 { font-size: 30px; letter-spacing: -.02em; margin: 0 0 4px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 14px; }
+  h3 { font-size: 15px; margin: 18px 0 8px; }
+  p { margin: 0 0 10px; }
+  .muted { color: var(--muted); }
+  a { color: var(--fg); }
+  code, kbd { font: 12px ui-monospace, monospace; }
+  kbd { background: var(--key); border: 1px solid var(--border); border-radius: 6px; padding: 2px 7px; white-space: nowrap; }
+
+  /* Layout: menu on the left, sections on the right */
+  .page { display: flex; max-width: 1080px; margin: 0 auto; padding: 40px 28px 80px; gap: 36px; }
+  nav { position: sticky; top: 40px; align-self: flex-start; display: flex; flex-direction: column; gap: 2px; min-width: 160px; }
+  nav a { padding: 7px 12px; border-radius: 9px; text-decoration: none; color: var(--muted); }
+  nav a:hover { background: var(--hover); color: var(--fg); }
+  main { flex: 1; min-width: 0; }
+  section { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 22px 24px; margin-bottom: 18px; scroll-margin-top: 30px; }
+  @media (max-width: 760px) { nav { display: none; } .page { padding: 24px 16px; } }
+
+  /* Controls */
+  button, .btn {
+    font: inherit; color: var(--fg); background: var(--key); border: 1px solid var(--border);
+    border-radius: 9px; padding: 6px 14px; cursor: pointer;
+  }
+  button:hover { background: var(--hover); filter: brightness(1.2); }
+  button.primary { background: var(--accent); color: var(--accent-fg); border-color: transparent; font-weight: 600; }
+  button.danger { color: var(--danger); }
+  button.small { padding: 2px 9px; font-size: 12px; }
+  input[type=text], textarea {
+    font: inherit; color: var(--fg); background: var(--card2); border: 1px solid var(--border);
+    border-radius: 9px; padding: 7px 10px; width: 100%;
+  }
+  textarea { font: 12px/1.5 ui-monospace, monospace; min-height: 90px; resize: vertical; }
+  input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .row { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-top: 1px solid var(--border); }
+  .row:first-of-type { border-top: none; }
+  .row .grow { flex: 1; min-width: 0; }
+  .switch { position: relative; width: 42px; height: 24px; flex: none; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch span { position: absolute; inset: 0; background: var(--key); border: 1px solid var(--border); border-radius: 99px; cursor: pointer; transition: .15s; }
+  .switch span::after { content: ""; position: absolute; width: 18px; height: 18px; left: 2px; top: 2px; border-radius: 50%; background: var(--muted); transition: .15s; }
+  .switch input:checked + span { background: var(--accent); }
+  .switch input:checked + span::after { transform: translateX(18px); background: var(--accent-fg); }
+
+  /* Choice cards (layout, theme) */
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .card { border: 2px solid transparent; border-radius: 14px; padding: 8px; cursor: pointer; background: var(--card2); text-align: left; color: var(--fg); }
+  .card:hover { border-color: var(--border); }
+  .card.on { border-color: var(--accent); }
+  .card .name { margin-top: 8px; font-weight: 600; }
+  .card .tag { font-size: 11px; color: var(--muted); }
+  .mini { height: 84px; border-radius: 9px; display: flex; gap: 5px; padding: 6px; overflow: hidden; }
+  .mini.top { flex-direction: column; }
+  .mini .side { width: 26%; border-radius: 5px; display: flex; flex-direction: column; gap: 4px; padding: 4px; }
+  .mini .bar { height: 14px; border-radius: 4px; display: flex; gap: 3px; padding: 3px; }
+  .mini .tabpill { height: 6px; border-radius: 3px; }
+  .mini .content { flex: 1; border-radius: 6px; }
+
+  /* Colour swatches */
+  .swatches { display: flex; gap: 6px; flex-wrap: wrap; }
+  .swatch { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--border); cursor: pointer; padding: 0; }
+  .swatch.on { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .swatch.none { background: repeating-linear-gradient(45deg, var(--card2), var(--card2) 4px, var(--key) 4px, var(--key) 8px); }
+
+  .keys { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .keys .clash { border-color: var(--danger); color: var(--danger); }
+  input.rec { width: 210px; text-align: center; }
+  input.pagekey { width: 64px; text-align: center; font-family: ui-monospace, monospace; }
+  .group { margin-top: 18px; color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+
+  #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--card2); border: 1px solid var(--border);
+           padding: 9px 18px; border-radius: 10px; box-shadow: 0 12px 32px rgba(0,0,0,.35); opacity: 0; transition: opacity .2s; pointer-events: none; }
+  #toast.show { opacity: 1; }
+
+  /* First-start setup */
+  .setup { max-width: 760px; margin: 0 auto; padding: 56px 28px 80px; }
+  .steps { display: flex; gap: 6px; margin: 22px 0 26px; }
+  .steps i { flex: 1; height: 4px; border-radius: 2px; background: var(--key); }
+  .steps i.done { background: var(--accent); }
+  .setup .actions { display: flex; justify-content: space-between; margin-top: 26px; }
+  .lead { font-size: 16px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast"></div>
+<script id="state" type="application/json">{state}</script>
+<script>
+"use strict";
+const MODE = "{mode}";
+let S = JSON.parse(document.getElementById("state").textContent);
+
+// ---------- Talking to Stales ----------
+function send(cmd, data = {}) {
+  window.webkit.messageHandlers.stalesSettings.postMessage(JSON.stringify({ cmd, ...data }));
+}
+window.stalesUpdate = (state) => {
+  S = state;
+  render();
+  if (state.note) toast(state.note);
+};
+let toastTimer;
+function toast(text) {
+  const t = document.getElementById("toast");
+  t.textContent = text;
+  t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), 2500);
+}
+
+// ---------- Small helpers ----------
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const toggle = (id, on, label) =>
+  `<label class="switch" title="${esc(label)}"><input type="checkbox" id="${id}" ${on ? "checked" : ""}><span></span></label>`;
+function on(id, event, fn) {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener(event, fn);
+}
+
+// ---------- Pieces used by both the settings page and the setup ----------
+function layoutCards() {
+  const mini = (top) => top
+    ? `<div class="mini top" style="background:#1c1c20"><div class="bar" style="background:#2a2a30"><span class="tabpill" style="width:22%;background:#55555f"></span><span class="tabpill" style="width:22%;background:#3a3a42"></span></div><div class="content" style="background:#0e0e10"></div></div>`
+    : `<div class="mini" style="background:#1c1c20"><div class="side" style="background:#24242a"><span class="tabpill" style="background:#55555f"></span><span class="tabpill" style="background:#3a3a42"></span><span class="tabpill" style="background:#3a3a42"></span></div><div class="content" style="background:#0e0e10"></div></div>`;
+  return `<div class="cards">
+    <button class="card ${S.layout === "arc" ? "on" : ""}" data-layout="arc">${mini(false)}<div class="name">Sidebar</div><div class="tag">Tabs on the left, like Arc</div></button>
+    <button class="card ${S.layout === "classic" ? "on" : ""}" data-layout="classic">${mini(true)}<div class="name">Tabs on top</div><div class="tag">The classic layout</div></button>
+  </div>`;
+}
+
+function themeCards() {
+  return `<div class="cards">${S.themes.map((t) => `
+    <button class="card ${S.theme === t.name ? "on" : ""}" data-theme="${esc(t.name)}">
+      <div class="mini" style="background:${esc(t.background)}">
+        <div class="side" style="background:transparent"><span class="tabpill" style="background:${esc(t.accent)}"></span><span class="tabpill" style="background:${esc(t.muted)};opacity:.5"></span><span class="tabpill" style="background:${esc(t.muted)};opacity:.5"></span></div>
+        <div class="content" style="background:${esc(t.page)}"></div>
+      </div>
+      <div class="name">${esc(t.name)}</div><div class="tag">${t.light ? "light" : "dark"}${t.custom ? " · your own" : ""}</div>
+    </button>`).join("")}</div>`;
+}
+
+function engineList(onlyGeneral) {
+  const sites = ["Wikipedia", "YouTube", "GitHub", "Arch Wiki", "AUR", "docs.rs"];
+  const engines = S.engines.filter((e) => !onlyGeneral || !sites.includes(e.name));
+  return engines.map((e) => `
+    <label class="row" style="cursor:pointer">
+      <input type="radio" name="engine" value="${esc(e.name)}" ${S.engine === e.name ? "checked" : ""}>
+      <span class="grow">${esc(e.name)} ${e.custom ? '<span class="muted">(yours)</span>' : ""}</span>
+      <code class="muted">@${esc(e.keyword)}</code>
+    </label>`).join("");
+}
+
+function wireShared() {
+  document.querySelectorAll("[data-layout]").forEach((b) => b.addEventListener("click", () => send("set-layout", { name: b.dataset.layout })));
+  document.querySelectorAll("[data-theme]").forEach((b) => b.addEventListener("click", () => send("set-theme", { name: b.dataset.theme })));
+  document.querySelectorAll("input[name=engine]").forEach((r) => r.addEventListener("change", () => send("set-engine", { name: r.value })));
+  on("vim", "change", (e) => send("set-vim", { on: e.target.checked }));
+  on("blocker", "change", (e) => send("set-blocker", { on: e.target.checked }));
+}
+
+// ---------- The settings page ----------
+function spacesSection() {
+  return S.spaces.map((s, i) => `
+    <div class="row">
+      <input type="text" style="width:52px;text-align:center" maxlength="2" value="${esc(s.icon)}" data-space-icon="${i}" title="Icon (any character or emoji)">
+      <input type="text" class="grow" value="${esc(s.name)}" data-space-name="${i}" title="Name">
+      <div class="swatches">
+        <button class="swatch none ${!s.color ? "on" : ""}" data-space-color="${i}" data-color="none" title="Theme colours"></button>
+        ${S.colors.map(([name, hex]) => `<button class="swatch ${s.color === name ? "on" : ""}" style="background:${hex}" data-space-color="${i}" data-color="${name}" title="${name}"></button>`).join("")}
+      </div>
+    </div>`).join("");
+}
+
+function shortcutsSection() {
+  const used = {};
+  S.actions.forEach((a) => a.keys.forEach((k) => (used[k] = (used[k] || []).concat(a.description))));
+  let group = "", html = "";
+  for (const a of S.actions) {
+    if (a.group !== group) { group = a.group; html += `<div class="group">${esc(group)}</div>`; }
+    const changed = JSON.stringify(a.keys) !== JSON.stringify(a.defaults);
+    const chips = a.keys.filter((k) => !k.includes("ISO_Left_Tab")).map((k) => {
+      const clash = used[k].length > 1;
+      return `<kbd class="${clash ? "clash" : ""}" title="${clash ? "Also used by: " + esc(used[k].filter((d) => d !== a.description).join(", ")) : ""}">${esc(a.pretty[a.keys.indexOf(k)] || k)}</kbd>`;
+    }).join("") || '<span class="muted">no key</span>';
+    html += `<div class="row">
+      <span class="grow">${esc(a.description)}</span>
+      <span class="keys" id="keys-${a.name}">${chips}</span>
+      <button class="small" data-record="${a.name}">Change</button>
+      ${changed ? `<button class="small" data-reset="${a.name}">Reset</button>` : ""}
+    </div>`;
+  }
+  return html;
+}
+
+function pageKeysSection() {
+  return S.page_actions.map((p) => `
+    <div class="row">
+      <span class="grow">${esc(p.description)}</span>
+      <input type="text" class="pagekey" maxlength="3" value="${esc(p.key === " " ? "Space" : p.key ?? "")}" data-page-action="${p.action}" placeholder="off">
+      ${p.key !== p.default ? `<button class="small" data-page-reset="${p.action}" data-default="${esc(p.default)}">Reset</button>` : ""}
+    </div>`).join("");
+}
+
+function settingsPage() {
+  const b = S.blocker;
+  return `<div class="page">
+  <nav>
+    <a href="#look">Look</a><a href="#spaces">Spaces</a><a href="#search">Search</a>
+    <a href="#keyboard">Keyboard</a><a href="#passwords">Passwords</a><a href="#privacy">Privacy</a><a href="#files">Files</a>
+  </nav>
+  <main>
+    <h1>Settings</h1>
+    <p class="muted" style="margin-bottom:24px">Changes apply at once and are saved to <code>${esc(S.paths.config)}</code>.</p>
+
+    <section id="look">
+      <h2>Look</h2>
+      <h3 style="margin-top:0">Layout</h3>${layoutCards()}
+      <h3>Theme</h3>${themeCards()}
+      <div class="row" style="margin-top:14px">
+        <span class="grow">Sidebar width <span class="muted" id="width-label">${S.sidebar.compact ? "icons only" : S.sidebar.width + " px"}</span></span>
+        <input type="range" id="width" min="180" max="520" step="10" value="${S.sidebar.width}" style="width:200px">
+        <button class="small" id="icons-only">Icons only</button>
+      </div>
+      <p class="muted" style="margin-top:10px">Make your own theme: put a CSS file in the themes folder, or tweak anything in <code>user.css</code>; both update live. <button class="small" data-folder="themes">Open themes folder</button></p>
+    </section>
+
+    <section id="spaces">
+      <h2>Spaces</h2>
+      <p class="muted">Each Space is its own set of tabs. Give it a name, an icon (any letter or emoji) and a colour.</p>
+      ${spacesSection()}
+    </section>
+
+    <section id="search">
+      <h2>Search</h2>
+      <p class="muted">Typing words instead of an address searches with the engine you pick. Type <code>@</code> + the shortcut first to use another one once, e.g. <code>@w linux</code>.</p>
+      ${engineList(false)}
+      <h3>Your own search engines</h3>
+      <p class="muted">Use <code>%s</code> where the search words go, e.g. <code>https://searx.example.org/search?q=%s</code></p>
+      <div id="custom-engines">${S.engines.filter((e) => e.custom).map((e) => customEngineRow(e)).join("")}</div>
+      <div style="display:flex;gap:8px;margin-top:10px"><button id="add-engine">Add engine</button><button class="primary" id="save-engines">Save engines</button></div>
+    </section>
+
+    <section id="keyboard">
+      <h2>Keyboard</h2>
+      <div class="row"><span class="grow"><b>Single-key commands on pages</b><br><span class="muted">Like Vimium: j/k scroll, f clicks links by typing letters. Never active while you type in a text field.</span></span>${toggle("vim", S.vim, "Single-key commands")}</div>
+      <h3>Sites that keep their own single keys</h3>
+      <textarea id="exclude" placeholder="mail.google.com">${esc(S.exclude.join("\n"))}</textarea>
+      <p class="muted">One site per line. Saved when you click elsewhere.</p>
+      <h3>Browser shortcuts</h3>
+      <p class="muted">Click <b>Change</b>, then press the new key combination. Esc cancels. A red key is used twice.</p>
+      ${shortcutsSection()}
+      <h3>Single keys on pages</h3>
+      <p class="muted">Type the key (or keys, like <code>gg</code>). Empty turns it off. Reload open tabs to use the change.</p>
+      ${pageKeysSection()}
+    </section>
+
+    <section id="passwords">
+      <h2>Passwords</h2>
+      <div class="row"><span class="grow"><b>Offer to save and fill logins</b><br><span class="muted">Stored in your system keyring (GNOME Keyring, KWallet or KeePassXC), encrypted with your login. Filled only on the same site, only when you pick it or press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd>.</span></span>${toggle("pw-enabled", S.passwords.enabled, "Password manager")}</div>
+      <h3>Saved logins</h3>
+      <div id="logins">${loginsHtml()}</div>
+      <h3>Never save on</h3>
+      <div id="never">${neverHtml()}</div>
+    </section>
+
+    <section id="privacy">
+      <h2>Privacy</h2>
+      <div class="row"><span class="grow"><b>Block ads and trackers</b><br><span class="muted">${esc(b.status)}</span></span>${toggle("blocker", b.enabled, "Ad blocker")}</div>
+      <h3>Filter lists</h3>
+      <textarea id="lists">${esc(b.lists.join("\n"))}</textarea>
+      <div style="display:flex;gap:8px;margin-top:8px"><button id="save-lists">Save lists</button><button id="update-lists">Update now</button></div>
+      <p class="muted" style="margin-top:8px">Hide cookie banners too: add <code>https://secure.fanboy.co.nz/fanboy-cookiemonster.txt</code></p>
+      <h3>Sites where nothing is blocked</h3>
+      ${b.allowed.length ? b.allowed.map((a) => `<div class="row"><span class="grow">${esc(a.site)} <span class="muted">${a.from === "config" ? "(config.toml)" : "(shield button)"}</span></span><button class="small" data-allowed="${esc(a.site)}" data-from="${a.from}">Remove</button></div>`).join("") : '<p class="muted">None. Use the shield button on a site to add it.</p>'}
+      <h3>Cookies and passwords</h3>
+      <p>Cookies from other sites (trackers) are refused, and WebKit's tracking prevention is on. Logins are kept as cookies in <code>${esc(S.paths.data)}</code>, readable only by you.</p>
+      <p class="muted">Saved passwords live in your system keyring, not in Stales' files. See Passwords above.</p>
+      <button class="danger" id="clear-data">Delete cookies and site data…</button>
+    </section>
+
+    <section id="files">
+      <h2>Files</h2>
+      <div class="row"><span class="grow">Settings<br><code class="muted">${esc(S.paths.config)}</code></span><button class="small" data-folder="config">Open folder</button></div>
+      <div class="row"><span class="grow">Your styles<br><code class="muted">${esc(S.paths.user_css)}</code></span></div>
+      <div class="row"><span class="grow">Tabs, cookies, cache<br><code class="muted">${esc(S.paths.data)}</code></span><button class="small" data-folder="data">Open folder</button></div>
+      <p class="muted" style="margin-top:10px">Press <kbd>F1</kbd> any time to see every shortcut. Open the setup again at <code>stales://setup</code>.</p>
+    </section>
+  </main></div>`;
+}
+
+// Saved logins arrive separately: reading the keyring can take a moment (or ask to unlock it).
+let LOGINS = null;
+window.stalesPasswords = (data) => {
+  LOGINS = data;
+  const logins = document.getElementById("logins"), never = document.getElementById("never");
+  if (logins) { logins.innerHTML = loginsHtml(); never.innerHTML = neverHtml(); wireLogins(); }
+};
+function loginsHtml() {
+  if (!LOGINS) return '<p class="muted">Reading your keyring…</p>';
+  if (!LOGINS.logins.length) return '<p class="muted">None yet. Log in on a site and choose <b>Save</b> in the bar that appears.</p>';
+  return LOGINS.logins.map((l) => `<div class="row">
+      <span class="grow">${esc(l.origin.replace(/^https?:\/\//, ""))}<br><span class="muted">${esc(l.username || "(no username)")}</span></span>
+      <button class="small" data-copy="${esc(l.origin)}" data-user="${esc(l.username)}">Copy password</button>
+      <button class="small danger" data-delete="${esc(l.origin)}" data-user="${esc(l.username)}">Delete</button>
+    </div>`).join("");
+}
+function neverHtml() {
+  if (!LOGINS || !LOGINS.never.length) return '<p class="muted">No sites.</p>';
+  return LOGINS.never.map((s) => `<div class="row"><span class="grow">${esc(s)}</span><button class="small" data-never="${esc(s)}">Remove</button></div>`).join("");
+}
+function wireLogins() {
+  document.querySelectorAll("[data-copy]").forEach((b) => b.addEventListener("click", () => send("copy-password", { origin: b.dataset.copy, username: b.dataset.user })));
+  document.querySelectorAll("[data-delete]").forEach((b) => b.addEventListener("click", () => {
+    if (confirm(`Delete the login for ${b.dataset.delete} (${b.dataset.user})?`)) send("delete-login", { origin: b.dataset.delete, username: b.dataset.user });
+  }));
+  document.querySelectorAll("[data-never]").forEach((b) => b.addEventListener("click", () => send("remove-never", { site: b.dataset.never })));
+}
+
+function customEngineRow(e = { name: "", keyword: "", url: "" }) {
+  return `<div class="row engine-row">
+    <input type="text" placeholder="Name" value="${esc(e.name)}" style="width:150px">
+    <input type="text" placeholder="Shortcut" value="${esc(e.keyword)}" style="width:90px">
+    <input type="text" class="grow" placeholder="https://…?q=%s" value="${esc(e.url)}">
+    <button class="small" data-remove-engine>Remove</button>
+  </div>`;
+}
+
+let recording = null;
+function wireSettings() {
+  on("width", "input", (e) => (document.getElementById("width-label").textContent = e.target.value + " px"));
+  on("width", "change", (e) => send("set-sidebar", { width: Number(e.target.value) }));
+  on("icons-only", "click", () => send("set-sidebar", { width: 56 }));
+  document.querySelectorAll("[data-folder]").forEach((b) => b.addEventListener("click", () => send("open-folder", { which: b.dataset.folder })));
+
+  // Spaces
+  document.querySelectorAll("[data-space-name]").forEach((i) => i.addEventListener("change", () => send("set-space", { index: Number(i.dataset.spaceName), name: i.value })));
+  document.querySelectorAll("[data-space-icon]").forEach((i) => i.addEventListener("change", () => send("set-space", { index: Number(i.dataset.spaceIcon), icon: i.value })));
+  document.querySelectorAll("[data-space-color]").forEach((b) => b.addEventListener("click", () => send("set-space", { index: Number(b.dataset.spaceColor), color: b.dataset.color })));
+
+  // Search engines
+  on("add-engine", "click", () => document.getElementById("custom-engines").insertAdjacentHTML("beforeend", customEngineRow()));
+  document.getElementById("custom-engines").addEventListener("click", (e) => { if (e.target.matches("[data-remove-engine]")) e.target.closest(".row").remove(); });
+  on("save-engines", "click", () => {
+    const engines = [...document.querySelectorAll(".engine-row")].map((r) => {
+      const [name, keyword, url] = [...r.querySelectorAll("input")].map((i) => i.value.trim());
+      return { name, keyword, url };
+    }).filter((e) => e.name || e.keyword || e.url);
+    send("set-custom-engines", { engines });
+  });
+
+  // Keyboard
+  on("exclude", "change", (e) => send("set-exclude", { sites: e.target.value.split("\n") }));
+  document.querySelectorAll("[data-reset]").forEach((b) => b.addEventListener("click", () => {
+    const a = S.actions.find((x) => x.name === b.dataset.reset);
+    send("set-binding", { action: a.name, keys: a.defaults });
+  }));
+  document.querySelectorAll("[data-record]").forEach((b) => b.addEventListener("click", () => startRecording(b.dataset.record)));
+  document.querySelectorAll("[data-page-action]").forEach((i) => i.addEventListener("change", () => {
+    const key = i.value === "Space" || i.value === "space" ? " " : i.value;
+    send("set-page-key", { action: i.dataset.pageAction, key });
+  }));
+  document.querySelectorAll("[data-page-reset]").forEach((b) => b.addEventListener("click", () => send("set-page-key", { action: b.dataset.pageReset, key: b.dataset.default })));
+
+  // Passwords
+  on("pw-enabled", "change", (e) => send("set-passwords", { on: e.target.checked }));
+  wireLogins();
+
+  // Privacy
+  on("save-lists", "click", () => send("set-lists", { lists: document.getElementById("lists").value.split("\n") }));
+  on("update-lists", "click", () => send("update-lists"));
+  document.querySelectorAll("[data-allowed]").forEach((b) => b.addEventListener("click", () => send("remove-allowed", { site: b.dataset.allowed, from: b.dataset.from })));
+  on("clear-data", "click", () => {
+    if (confirm("Delete all cookies, cache and site data? You will be logged out of every website.")) send("clear-data");
+  });
+}
+
+// Recording a new shortcut: the browser's own shortcuts are paused meanwhile
+// (otherwise pressing Ctrl+T would open a tab instead of being recorded).
+const CODE_NAMES = {
+  ArrowLeft: "Left", ArrowRight: "Right", ArrowUp: "Up", ArrowDown: "Down", PageUp: "Page_Up", PageDown: "Page_Down",
+  Home: "Home", End: "End", Tab: "Tab", Enter: "Return", Backspace: "BackSpace", Delete: "Delete", Insert: "Insert",
+  Space: "space", Minus: "minus", Equal: "equal", BracketLeft: "bracketleft", BracketRight: "bracketright",
+  Comma: "comma", Period: "period", Slash: "slash", Backslash: "backslash", Semicolon: "semicolon",
+  Quote: "apostrophe", Backquote: "grave",
+};
+function startRecording(action) {
+  const cell = document.getElementById("keys-" + action);
+  cell.innerHTML = `<input type="text" class="rec" placeholder="Press the keys… (Esc cancels)">`;
+  const input = cell.querySelector("input");
+  recording = action;
+  send("record", { on: true });
+  input.focus();
+  const stop = () => { if (recording) { recording = null; send("record", { on: false }); render(); } };
+  input.addEventListener("blur", stop);
+  input.addEventListener("keydown", (e) => {
+    e.preventDefault();
+    if (["Control", "Shift", "Alt", "Meta", "Super", "AltGraph"].includes(e.key)) return;
+    if (e.key === "Escape") return stop();
+    let name = e.code.startsWith("Key") ? e.code.slice(3).toLowerCase()
+      : e.code.startsWith("Digit") ? e.code.slice(5)
+      : /^F\d+$/.test(e.code) ? e.code
+      : CODE_NAMES[e.code];
+    if (!name) return toast("That key can't be used");
+    const accel = (e.ctrlKey ? "<Ctrl>" : "") + (e.shiftKey ? "<Shift>" : "") + (e.altKey ? "<Alt>" : "") + (e.metaKey ? "<Super>" : "") + name;
+    recording = null;
+    send("record", { on: false });
+    send("set-binding", { action, keys: [accel] });
+  });
+}
+
+// ---------- The first-start setup ----------
+let step = 0;
+const STEPS = [
+  () => `<h1>Welcome to Stales</h1>
+    <p class="lead">Let's make it yours. Five quick choices; you can change everything later in Settings (<kbd>Ctrl</kbd>+<kbd>,</kbd>).</p>
+    <p class="muted">Everything you choose applies right away, so you can see it behind this page.</p>`,
+  () => `<h2>1 · Layout</h2><h1>Where should your tabs be?</h1><p class="lead">You can switch any time with <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>L</kbd>.</p>${layoutCards()}`,
+  () => `<h2>2 · Theme</h2><h1>Pick a look</h1><p class="lead">From quiet to colourful. Each Space can also get its own colour later.</p>${themeCards()}`,
+  () => `<h2>3 · Search</h2><h1>Your search engine</h1><p class="lead">Used when you type words instead of an address.</p><div>${engineList(true)}</div>`,
+  () => `<h2>4 · Keyboard</h2><h1>Control pages with single keys?</h1>
+    <p class="lead">Like Vimium: <kbd>j</kbd>/<kbd>k</kbd> scroll, <kbd>f</kbd> shows letters on every link so you can click it by typing. They never fire while you type in a text field.</p>
+    <div class="row"><span class="grow"><b>Single-key commands</b></span>${toggle("vim", S.vim, "Single-key commands")}</div>
+    <p class="muted">Ctrl shortcuts (<kbd>Ctrl</kbd>+<kbd>T</kbd>, <kbd>Ctrl</kbd>+<kbd>L</kbd>, …) always work.</p>`,
+  () => {
+    const cookieList = "https://secure.fanboy.co.nz/fanboy-cookiemonster.txt";
+    return `<h2>5 · Privacy</h2><h1>Block ads and trackers?</h1>
+    <p class="lead">Uses the same filter lists as uBlock Origin, built into the engine.</p>
+    <div class="row"><span class="grow"><b>Block ads and trackers</b></span>${toggle("blocker", S.blocker.enabled, "Ad blocker")}</div>
+    <div class="row"><span class="grow"><b>Also hide cookie banners</b><br><span class="muted">Can occasionally hide part of a site.</span></span>${toggle("cookies", S.blocker.lists.includes(cookieList), "Cookie banners")}</div>
+    <p class="muted">Cookies from other sites are always refused. Stales doesn't save passwords. Use a password manager.</p>`;
+  },
+  () => `<h1>All set</h1><p class="lead">A few keys to remember:</p>
+    <div class="row"><span class="grow">Search or open a tab</span><kbd>Ctrl+T</kbd></div>
+    <div class="row"><span class="grow">Every shortcut</span><kbd>F1</kbd></div>
+    <div class="row"><span class="grow">Settings</span><kbd>Ctrl+,</kbd></div>
+    <div class="row"><span class="grow">Hide the sidebar</span><kbd>Ctrl+S</kbd></div>`,
+];
+function setupPage() {
+  return `<div class="setup">
+    <div class="steps">${STEPS.map((_, i) => `<i class="${i <= step ? "done" : ""}"></i>`).join("")}</div>
+    ${STEPS[step]()}
+    <div class="actions">
+      <button id="back" ${step === 0 ? 'style="visibility:hidden"' : ""}>Back</button>
+      ${step < STEPS.length - 1 ? '<button class="primary" id="next">Next</button>' : '<button class="primary" id="finish">Start browsing</button>'}
+    </div>
+  </div>`;
+}
+function wireSetup() {
+  on("next", "click", () => { step++; render(); });
+  on("back", "click", () => { step--; render(); });
+  on("finish", "click", () => send("finish-setup"));
+  on("cookies", "change", (e) => {
+    const url = "https://secure.fanboy.co.nz/fanboy-cookiemonster.txt";
+    const lists = S.blocker.lists.filter((l) => l !== url);
+    if (e.target.checked) lists.push(url);
+    send("set-lists", { lists });
+  });
+  document.getElementById("next")?.focus();
+}
+
+// ---------- Drawing ----------
+function render() {
+  if (recording) return; // don't redraw while a shortcut is being recorded
+  const y = window.scrollY;
+  document.getElementById("app").innerHTML = MODE === "setup" ? setupPage() : settingsPage();
+  wireShared();
+  if (MODE === "setup") wireSetup(); else { wireSettings(); window.scrollTo(0, y); }
+}
+render();
+if (MODE === "settings") send("get-logins");
+if (location.hash) document.querySelector(location.hash)?.scrollIntoView();
+</script>
+</body>
+</html>

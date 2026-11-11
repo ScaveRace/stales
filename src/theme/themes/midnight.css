@@ -1,0 +1,13 @@
+/* Midnight: dark and almost colourless. The default.
+ * stales: dark */
+@define-color st_bg      #111113;
+@define-color st_page    #0a0a0b;
+@define-color st_surface #1a1a1d;
+@define-color st_fg      #e4e4e7;
+@define-color st_muted   #85858f;
+@define-color st_hover   rgba(255, 255, 255, 0.05);
+@define-color st_active  rgba(255, 255, 255, 0.10);
+@define-color st_border  rgba(255, 255, 255, 0.06);
+@define-color st_accent  #e4e4e7;
+@define-color st_scrim   rgba(0, 0, 0, 0.45);
+@define-color st_shadow  rgba(0, 0, 0, 0.5);

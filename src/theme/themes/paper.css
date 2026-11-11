@@ -1,0 +1,13 @@
+/* Paper: light and calm, black on white.
+ * stales: light */
+@define-color st_bg      #ececee;
+@define-color st_page    #ffffff;
+@define-color st_surface #ffffff;
+@define-color st_fg      #18181b;
+@define-color st_muted   #6b6b74;
+@define-color st_hover   rgba(0, 0, 0, 0.05);
+@define-color st_active  rgba(0, 0, 0, 0.09);
+@define-color st_border  rgba(0, 0, 0, 0.09);
+@define-color st_accent  #18181b;
+@define-color st_scrim   rgba(0, 0, 0, 0.18);
+@define-color st_shadow  rgba(0, 0, 0, 0.16);
