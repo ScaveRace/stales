@@ -21,5 +21,8 @@ First public version.
 - Everything configurable in ~/.config/stales/config.toml
 - First-start setup (layout, theme, search, keyboard, privacy) and a settings page (Ctrl+,)
   that changes everything live and saves to config.toml without losing comments
+- Password manager using your system keyring (GNOME Keyring, KWallet, KeePassXC):
+  offers to save after you log in, fills only on the same secure site and only when you
+  pick an account or press Ctrl+Shift+L; logins listed in Settings
 - Data files are private to your user (cookies, tabs, settings)
 - Ad blocker splits very large filter selections into several WebKit rule lists

@@ -12,9 +12,9 @@ jobs:
     name: Ubuntu 24.04
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - name: Install GTK 4 and WebKitGTK
-        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
+      - uses: actions/checkout@v5
+      - name: Install GTK 4, WebKitGTK and libsecret
+        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev libsecret-1-dev
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
@@ -23,7 +23,7 @@ jobs:
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked
       - run: cargo build --release --locked
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: stales-x86_64-linux
           path: target/release/stales
@@ -34,7 +34,7 @@ jobs:
     container: archlinux:latest
     steps:
       - name: Install packages
-        run: pacman -Syu --noconfirm --needed rust gtk4 webkitgtk-6.0 git base-devel
-      - uses: actions/checkout@v4
+        run: pacman -Syu --noconfirm --needed rust gtk4 webkitgtk-6.0 libsecret git base-devel
+      - uses: actions/checkout@v5
       - run: cargo test --locked
       - run: cargo build --release --locked

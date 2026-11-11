@@ -1,0 +1,63 @@
+# Publishes a GitHub release when you push a version tag:
+#
+#   git tag v0.1.0
+#   git push origin v0.1.0
+#
+# It builds Stales on Ubuntu 24.04 (so the program runs there and on newer systems,
+# including Arch), packs it with the installer, and uses that version's section of
+# CHANGELOG.md as the release notes.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install GTK 4, WebKitGTK and libsecret
+        run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev libsecret-1-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --locked
+      - run: cargo build --release --locked
+
+      - name: Pack the program
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          DIR="stales-$VERSION-x86_64-linux"
+          mkdir -p "$DIR"
+          cp target/release/stales install.sh README.md LICENSE CHANGELOG.md "$DIR/"
+          cp -r data "$DIR/"
+          tar czf "$DIR.tar.gz" "$DIR"
+          sha256sum "$DIR.tar.gz" > "$DIR.tar.gz.sha256"
+          echo "DIR=$DIR" >> "$GITHUB_ENV"
+
+      - name: Release notes from CHANGELOG.md
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v v="$VERSION" '
+            /^## / { if (found) exit; if (index($0, v)) { found = 1; next } }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          cat >> notes.md <<'NOTES'
+
+          ### Install
+          Download `stales-…-x86_64-linux.tar.gz`, unpack it and run `./install.sh` (installs to `~/.local`, no sudo).
+          Needs GTK 4.14+, WebKitGTK 6.0 and libsecret:
+          - Arch: `sudo pacman -S --needed gtk4 webkitgtk-6.0 libsecret`
+          - Ubuntu 24.04+: `sudo apt install libgtk-4-1 libwebkitgtk-6.0-4 libsecret-1-0`
+          NOTES
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Stales ${{ github.ref_name }}
+          body_path: notes.md
+          files: |
+            ${{ env.DIR }}.tar.gz
+            ${{ env.DIR }}.tar.gz.sha256

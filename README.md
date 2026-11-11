@@ -65,7 +65,7 @@ Arc showed how pleasant a browser can be when tabs live in a sidebar and the bro
 ### Arch Linux
 
 ```bash
-sudo pacman -S --needed rust gtk4 webkitgtk-6.0 git
+sudo pacman -S --needed rust gtk4 webkitgtk-6.0 libsecret git
 git clone https://github.com/ScaveRace/stales.git && cd stales
 ./install.sh
 ```
@@ -75,7 +75,7 @@ Or build a package with the included recipe: `cd packaging/arch && makepkg -si`.
 ### Ubuntu 24.04 or newer, Debian 13
 
 ```bash
-sudo apt install cargo libgtk-4-dev libwebkitgtk-6.0-dev git
+sudo apt install cargo libgtk-4-dev libwebkitgtk-6.0-dev libsecret-1-dev git
 git clone https://github.com/ScaveRace/stales.git && cd stales
 ./install.sh
 ```
