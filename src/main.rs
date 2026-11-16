@@ -33,6 +33,14 @@ fn main() -> gtk::glib::ExitCode {
     // single instance: if it is already running, the address goes to that window.
     let app =
         gtk::Application::builder().application_id(APP_ID).flags(gtk::gio::ApplicationFlags::HANDLES_OPEN).build();
+    // For testing several copies side by side: STALES_INSTANCE=name runs a separate,
+    // independent copy (own window, own control socket). Combine it with your own
+    // XDG_CONFIG_HOME / XDG_DATA_HOME / XDG_CACHE_HOME to keep its files apart too.
+    if let Ok(name) = std::env::var("STALES_INSTANCE") {
+        let clean: String = name.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+        app.set_application_id(Some(&format!("{APP_ID}.Test{clean}")));
+        app.set_flags(gtk::gio::ApplicationFlags::HANDLES_OPEN | gtk::gio::ApplicationFlags::NON_UNIQUE);
+    }
     app.connect_activate(|app| {
         window::show(app);
     });

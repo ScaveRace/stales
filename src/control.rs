@@ -30,7 +30,12 @@ pub fn start(ui: &Rc<Ui>) {
     if std::env::var("STALES_CONTROL").as_deref() != Ok("1") {
         return;
     }
-    let path = glib::user_runtime_dir().join("stales.sock");
+    // Test copies (STALES_INSTANCE=name) get their own socket: stales-name.sock.
+    let file = match std::env::var("STALES_INSTANCE") {
+        Ok(name) => format!("stales-{}.sock", name.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>()),
+        Err(_) => "stales.sock".to_string(),
+    };
+    let path = glib::user_runtime_dir().join(file);
     let _ = std::fs::remove_file(&path);
     let listener = match UnixListener::bind(&path) {
         Ok(l) => l,
