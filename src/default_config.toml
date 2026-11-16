@@ -30,6 +30,12 @@ folders = true
 # (and site searches: Wikipedia, YouTube, GitHub, Arch Wiki, AUR, docs.rs)
 engine = "DuckDuckGo"
 
+# Search suggestions while you type in the command bar (Ctrl+T / Ctrl+L).
+# To get them, the words you type are sent to your search engine (or the @ engine)
+# as you type, a short moment after you stop. Addresses and stales:// pages are
+# never sent. Set to false to send nothing until you press Enter.
+suggestions = true
+
 # Search with another engine just once by typing its keyword with @ first:
 #   @d DuckDuckGo   @g Google    @br Brave     @s Startpage  @b Bing
 #   @e Ecosia       @q Qwant     @k Kagi       @m Mojeek
@@ -41,6 +47,7 @@ engine = "DuckDuckGo"
 # name = "My SearXNG"
 # keyword = "sx"
 # url = "https://searx.example.org/search?q=%s"
+# suggest_url = "https://searx.example.org/autocompleter?q=%s"   # optional, for suggestions
 
 [keys]
 # Press F1 in Stales to see every shortcut.

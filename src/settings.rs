@@ -118,7 +118,9 @@ fn state(ui: &Ui) -> Value {
         "engine": state.search.default_engine().name,
         "engines": state.search.engines.iter().map(|e| json!({
             "name": e.name, "keyword": e.keyword, "url": e.url, "custom": custom.contains(&e.keyword.as_str()),
+            "suggest_url": e.suggest_url,
         })).collect::<Vec<_>>(),
+        "suggestions": config.search.suggestions,
         "vim": config.keys.vim,
         "exclude": config.keys.exclude,
         "actions": ACTIONS.iter().map(|a| json!({
@@ -192,7 +194,7 @@ pub fn handle(ui: &Rc<Ui>, id: TabId, message: &str) {
             }
         }
         "set-custom-engines" => {
-            let engines: Vec<(String, String, String)> = msg
+            let engines: Vec<(String, String, String, String)> = msg
                 .get("engines")
                 .and_then(Value::as_array)
                 .map(|a| {
@@ -200,27 +202,37 @@ pub fn handle(ui: &Rc<Ui>, id: TabId, message: &str) {
                         .map(|e| {
                             let field =
                                 |k: &str| e.get(k).and_then(Value::as_str).unwrap_or_default().trim().to_string();
-                            (field("name"), field("keyword"), field("url"))
+                            (field("name"), field("keyword"), field("url"), field("suggest_url"))
                         })
                         .collect()
                 })
                 .unwrap_or_default();
-            if let Some((name, ..)) = engines.iter().find(|(n, k, u)| n.is_empty() || k.is_empty() || !u.contains("%s"))
+            if let Some((name, ..)) =
+                engines.iter().find(|(n, k, u, _)| n.is_empty() || k.is_empty() || !u.contains("%s"))
             {
                 note = Some(format!("“{name}” needs a name, a shortcut and %s in its address"));
+            } else if let Some((name, ..)) = engines.iter().find(|(.., s)| !s.is_empty() && !s.contains("%s")) {
+                note = Some(format!("The suggestions address of “{name}” needs %s"));
             } else if save(ui, |doc| {
                 let mut array = toml_edit::ArrayOfTables::new();
-                for (name, keyword, url) in &engines {
+                for (name, keyword, url, suggest_url) in &engines {
                     let mut table = toml_edit::Table::new();
                     table.insert("name", toml_edit::value(name.as_str()));
                     table.insert("keyword", toml_edit::value(keyword.as_str()));
                     table.insert("url", toml_edit::value(url.as_str()));
+                    if !suggest_url.is_empty() {
+                        table.insert("suggest_url", toml_edit::value(suggest_url.as_str()));
+                    }
                     array.push(table);
                 }
                 config::table(doc, &["search"]).insert("custom", toml_edit::Item::ArrayOfTables(array));
             }) {
                 reload_search(ui);
             }
+        }
+        "set-suggestions" => {
+            let on = flag("on");
+            save(ui, |doc| config::set(doc, &["search"], "suggestions", on.into()));
         }
         "set-vim" => {
             let on = flag("on");

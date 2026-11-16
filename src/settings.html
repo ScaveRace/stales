@@ -187,6 +187,7 @@ function wireShared() {
   document.querySelectorAll("[data-theme]").forEach((b) => b.addEventListener("click", () => send("set-theme", { name: b.dataset.theme })));
   document.querySelectorAll("input[name=engine]").forEach((r) => r.addEventListener("change", () => send("set-engine", { name: r.value })));
   on("vim", "change", (e) => send("set-vim", { on: e.target.checked }));
+  on("suggestions", "change", (e) => send("set-suggestions", { on: e.target.checked }));
 }
 
 // ---------- The settings page ----------
@@ -272,8 +273,9 @@ function settingsPage() {
       <h2>Search</h2>
       <p class="muted">Typing words instead of an address searches with the engine you pick. Type <code>@</code> + the shortcut first to use another one once, e.g. <code>@w linux</code>.</p>
       ${engineList(false)}
+      <div class="row"><span class="grow"><b>Search suggestions while you type</b><br><span class="muted">Sends what you type in the command bar to the search engine as you type, to show its suggestions. Addresses are never sent.</span></span>${toggle("suggestions", S.suggestions, "Search suggestions")}</div>
       <h3>Your own search engines</h3>
-      <p class="muted">Use <code>%s</code> where the search words go, e.g. <code>https://searx.example.org/search?q=%s</code></p>
+      <p class="muted">Use <code>%s</code> where the search words go, e.g. <code>https://searx.example.org/search?q=%s</code>. The suggestions address is optional (OpenSearch format), e.g. <code>https://searx.example.org/autocompleter?q=%s</code></p>
       <div id="custom-engines">${S.engines.filter((e) => e.custom).map((e) => customEngineRow(e)).join("")}</div>
       <div style="display:flex;gap:8px;margin-top:10px"><button id="add-engine">Add engine</button><button class="primary" id="save-engines">Save engines</button></div>
     </section>
@@ -385,11 +387,12 @@ function wireLogins() {
   document.querySelectorAll("[data-never]").forEach((b) => b.addEventListener("click", () => send("remove-never", { site: b.dataset.never })));
 }
 
-function customEngineRow(e = { name: "", keyword: "", url: "" }) {
-  return `<div class="row engine-row">
+function customEngineRow(e = { name: "", keyword: "", url: "", suggest_url: "" }) {
+  return `<div class="row engine-row" style="flex-wrap:wrap">
     <input type="text" placeholder="Name" value="${esc(e.name)}" style="width:150px">
     <input type="text" placeholder="Shortcut" value="${esc(e.keyword)}" style="width:90px">
     <input type="text" class="grow" placeholder="https://…?q=%s" value="${esc(e.url)}">
+    <input type="text" class="grow" placeholder="Suggestions (optional): https://…?q=%s" value="${esc(e.suggest_url)}" style="flex-basis:100%">
     <button class="small" data-remove-engine>Remove</button>
   </div>`;
 }
@@ -421,8 +424,8 @@ function wireSettings() {
   document.getElementById("custom-engines").addEventListener("click", (e) => { if (e.target.matches("[data-remove-engine]")) e.target.closest(".row").remove(); });
   on("save-engines", "click", () => {
     const engines = [...document.querySelectorAll(".engine-row")].map((r) => {
-      const [name, keyword, url] = [...r.querySelectorAll("input")].map((i) => i.value.trim());
-      return { name, keyword, url };
+      const [name, keyword, url, suggest_url] = [...r.querySelectorAll("input")].map((i) => i.value.trim());
+      return { name, keyword, url, suggest_url };
     }).filter((e) => e.name || e.keyword || e.url);
     send("set-custom-engines", { engines });
   });

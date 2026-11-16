@@ -4,6 +4,9 @@
 
 - Removed the built-in ad blocker for now (it slowed pages down and broke some
   sites); it may come back later in a different form. Old rule files are deleted.
+- Search suggestions from your search engine while you type in the command bar
+  (also for `@` shortcuts and your own engines with `suggest_url`). Turn them off in
+  Settings → Search. The results list now works with ↑/↓, Ctrl+N/P, Enter and Tab.
 
 ## 0.1.0 (2026-11-10)
 

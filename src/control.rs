@@ -10,6 +10,7 @@
 //!
 //! Commands: open <text>, go <text>, select <n>, pin <n>, close, back, forward,
 //! reload, space <n>, new-space, sidebar, cmdbar [text], cmdbar-edit, cmdbar-close,
+//! cmdbar-rows, cmdbar-key <down|up|ctrl-n|ctrl-p|tab|enter>,
 //! search-engine <name>, action <name>, page-key <key>, find <text>, find-count,
 //! sidebar-width, js <code>, settings-msg <json>, theme <name>, themes, layout <arc|classic>, space-color <name>, state
 
@@ -122,6 +123,12 @@ fn run(ui: &Rc<Ui>, line: &str) -> String {
         }
         "cmdbar-edit" => command_bar::open(ui, Mode::EditCurrent),
         "cmdbar-close" => command_bar::close(ui),
+        "cmdbar-rows" => return command_bar::describe(ui),
+        "cmdbar-key" => {
+            if !command_bar::press(ui, arg.trim()) {
+                return format!("error: no key '{arg}' (down, up, ctrl-n, ctrl-p, tab, enter)");
+            }
+        }
         "search-engine" => {
             if !ui.state.borrow_mut().search.set_default(arg) {
                 return format!("error: no search engine '{arg}'");

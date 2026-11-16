@@ -16,6 +16,7 @@ mod session;
 mod settings;
 mod sidebar;
 mod state;
+mod suggest;
 mod theme;
 mod topbar;
 mod welcome;

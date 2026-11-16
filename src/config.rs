@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use gtk::glib;
 use serde::Deserialize;
 
-use crate::search::{Search, SearchEngine};
+use crate::search::{Search, SearchEngine, SuggestFormat};
 
 const DEFAULT_CONFIG: &str = include_str!("default_config.toml");
 
@@ -124,11 +124,13 @@ pub struct SearchConfig {
     pub engine: String,
     /// Your own engines, e.g. a SearXNG instance.
     pub custom: Vec<CustomEngine>,
+    /// Ask the search engine for suggestions while you type in the command bar.
+    pub suggestions: bool,
 }
 
 impl Default for SearchConfig {
     fn default() -> Self {
-        Self { engine: "DuckDuckGo".into(), custom: Vec::new() }
+        Self { engine: "DuckDuckGo".into(), custom: Vec::new(), suggestions: true }
     }
 }
 
@@ -137,6 +139,9 @@ pub struct CustomEngine {
     pub name: String,
     pub keyword: String,
     pub url: String,
+    /// Optional address for suggestions while you type, with %s (OpenSearch answers).
+    #[serde(default)]
+    pub suggest_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -171,7 +176,19 @@ impl Config {
                 }
                 ok
             })
-            .map(|e| SearchEngine { name: e.name.clone(), keyword: e.keyword.clone(), url: e.url.clone() })
+            .map(|e| SearchEngine {
+                name: e.name.clone(),
+                keyword: e.keyword.clone(),
+                url: e.url.clone(),
+                suggest_url: e.suggest_url.clone().filter(|u| {
+                    let ok = u.contains("%s");
+                    if !ok && !u.is_empty() {
+                        eprintln!("stales: search engine '{}' has no %s in its suggest_url, ignoring it", e.name);
+                    }
+                    ok
+                }),
+                suggest_format: SuggestFormat::OpenSearch,
+            })
             .collect();
         Search::new(&self.search.engine, custom)
     }
@@ -302,15 +319,23 @@ mod tests {
             name = "Searx"
             keyword = "sx"
             url = "https://searx.example.org/search?q=%s"
+            suggest_url = "https://searx.example.org/autocompleter?q=%s"
             "#,
         )
         .unwrap();
-        assert_eq!(config.search().default_engine().name, "Searx");
+        let search = config.search();
+        assert_eq!(search.default_engine().name, "Searx");
+        assert_eq!(
+            search.default_engine().suggest_url_for("a b").as_deref(),
+            Some("https://searx.example.org/autocompleter?q=a%20b")
+        );
+        assert!(config.search.suggestions);
     }
 
     #[test]
     fn missing_sections_use_defaults() {
         let config: Config = toml::from_str("").unwrap();
         assert_eq!(config.search().default_engine().name, "DuckDuckGo");
+        assert!(config.search.suggestions);
     }
 }
