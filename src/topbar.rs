@@ -11,13 +11,14 @@
 //! It shows the same tabs and Spaces as the sidebar; switch with Ctrl+Alt+L.
 //! Middle-click a tab to close it.
 
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use gtk::pango::EllipsizeMode;
 use gtk::prelude::*;
 
 use crate::command_bar::{self, Mode};
-use crate::sidebar::{favicon, icon_button};
+use crate::sidebar::{IconSpot, ShownTab, icon_button};
 use crate::state::Selected;
 use crate::window::{self, Ui};
 
@@ -33,6 +34,10 @@ pub struct TopBar {
     url_button: gtk::Button,
     url_label: gtk::Label,
     new_tab: gtk::Button,
+    /// What the tab strip was last built from (see `sidebar::layout_key`).
+    shown_key: RefCell<String>,
+    /// The tabs' widgets, for updating titles and icons in place.
+    shown: RefCell<Vec<ShownTab>>,
 }
 
 pub fn build() -> TopBar {
@@ -101,7 +106,21 @@ pub fn build() -> TopBar {
     root.set_hexpand(true);
     root.append(&handle);
     root.append(&toolbar);
-    TopBar { root, tabs, scroller, spaces, back, forward, reload, settings, url_button, url_label, new_tab }
+    TopBar {
+        root,
+        tabs,
+        scroller,
+        spaces,
+        back,
+        forward,
+        reload,
+        settings,
+        url_button,
+        url_label,
+        new_tab,
+        shown_key: RefCell::default(),
+        shown: RefCell::default(),
+    }
 }
 
 pub fn connect(ui: &Rc<Ui>) {
@@ -129,7 +148,13 @@ pub fn connect(ui: &Rc<Ui>) {
 }
 
 /// One tab in the strip. Pinned tabs show only their icon.
-fn tab_widget(ui: &Rc<Ui>, selected: Selected, tab: &crate::state::Tab, active: bool) -> gtk::Box {
+fn tab_widget(
+    ui: &Rc<Ui>,
+    selected: Selected,
+    tab: &crate::state::Tab,
+    active: bool,
+    shown: &mut Vec<ShownTab>,
+) -> gtk::Box {
     let pinned = matches!(selected, Selected::Pinned(_));
     let item = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     item.add_css_class("st-toptab");
@@ -139,11 +164,10 @@ fn tab_widget(ui: &Rc<Ui>, selected: Selected, tab: &crate::state::Tab, active: 
     if active {
         item.add_css_class("active");
     }
-    item.set_tooltip_text(Some(&tab.title));
-    item.append(&favicon(ui, tab));
-
+    let mut title_label = None;
     if !pinned {
         let title = gtk::Label::new(Some(&tab.title));
+        title_label = Some(title.clone());
         // Fixed-width tabs, like most browsers; many tabs scroll sideways.
         title.set_xalign(0.0);
         title.set_ellipsize(EllipsizeMode::End);
@@ -159,6 +183,8 @@ fn tab_widget(ui: &Rc<Ui>, selected: Selected, tab: &crate::state::Tab, active: 
         });
         item.append(&close);
     }
+    // Puts the icon in front and sets the tooltip.
+    shown.push(ShownTab::new(ui, tab, &item, IconSpot::First(item.clone()), title_label, false));
 
     // Left click selects; middle click closes (not pinned tabs).
     let click = gtk::GestureClick::new();
@@ -224,11 +250,20 @@ pub fn refresh(ui: &Rc<Ui>) {
         None => bar.url_label.set_label("Search or enter address"),
     }
 
+    // Only titles or icons changed: update them, don't rebuild the strip.
+    let key = crate::sidebar::layout_key(ui, &state, "");
+    if *bar.shown_key.borrow() == key {
+        crate::sidebar::update_shown(ui, &state, &mut bar.shown.borrow_mut());
+        return;
+    }
+    bar.shown_key.replace(key);
+    let mut shown = Vec::new();
+
     clear(&bar.tabs);
     let mut active_widget = None;
     for (i, tab) in space.pinned.iter().enumerate() {
         let selected = Selected::Pinned(i);
-        let widget = tab_widget(ui, selected, tab, space.active == Some(selected));
+        let widget = tab_widget(ui, selected, tab, space.active == Some(selected), &mut shown);
         if space.active == Some(selected) {
             active_widget = Some(widget.clone());
         }
@@ -241,13 +276,14 @@ pub fn refresh(ui: &Rc<Ui>) {
     }
     for (i, tab) in space.tabs.iter().enumerate() {
         let selected = Selected::Tab(i);
-        let widget = tab_widget(ui, selected, tab, space.active == Some(selected));
+        let widget = tab_widget(ui, selected, tab, space.active == Some(selected), &mut shown);
         if space.active == Some(selected) {
             active_widget = Some(widget.clone());
         }
         bar.tabs.append(&widget);
     }
 
+    bar.shown.replace(shown);
     if let Some(widget) = active_widget {
         scroll_into_view(bar.scroller.clone(), bar.tabs.clone(), widget);
     }

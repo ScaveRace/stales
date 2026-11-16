@@ -38,12 +38,42 @@ fn worth_keeping(url: &str) -> bool {
     url.starts_with("https://") || url.starts_with("http://") || url.starts_with("file://")
 }
 
+/// Add one visit at the end of the history file.
+fn append(visit: &Visit) {
+    let line = serde_json::to_string(visit).unwrap_or_default();
+    if let Some(dir) = path().parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path()) {
+        let _ = writeln!(file, "{line}");
+    }
+}
+
+/// A visit whose title changed is written again (same address and time, new title).
+/// Keep only the last version of each. Returns the visits, and whether any were merged.
+fn merge_title_updates(lines: impl Iterator<Item = Visit>) -> (Vec<Visit>, bool) {
+    let mut visits: Vec<Visit> = Vec::new();
+    let mut merged = false;
+    for visit in lines {
+        match visits.last_mut() {
+            Some(last) if last.url == visit.url && last.time == visit.time => {
+                last.title = visit.title;
+                merged = true;
+            }
+            _ => visits.push(visit),
+        }
+    }
+    (visits, merged)
+}
+
 impl History {
     /// Read the history file, dropping visits older than `keep_days` (0: keep all).
     pub fn load(keep_days: u32) -> Self {
         let text = std::fs::read_to_string(path()).unwrap_or_default();
-        let mut history = Self { visits: text.lines().filter_map(|l| serde_json::from_str(l).ok()).collect() };
-        if history.prune(keep_days) {
+        let (visits, merged) = merge_title_updates(text.lines().filter_map(|l| serde_json::from_str(l).ok()));
+        let mut history = Self { visits };
+        // Write the file again only if it got shorter (old visits or title updates gone).
+        if history.prune(keep_days) || merged {
             history.write_all();
         }
         history
@@ -72,19 +102,17 @@ impl History {
         {
             if last.title != title {
                 last.title = title.to_string();
-                self.write_all();
+                // The same visit again with the new title. Rewriting the whole file
+                // instead took about 10 ms with a few months of history, and some
+                // sites change their title every few seconds.
+                let updated = last.clone();
+                append(&updated);
             }
             return;
         }
         let visit = Visit { url: url.to_string(), title: title.to_string(), time: now() };
         // Append one line instead of rewriting the whole file.
-        let line = serde_json::to_string(&visit).unwrap_or_default();
-        if let Some(dir) = path().parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
-        if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path()) {
-            let _ = writeln!(file, "{line}");
-        }
+        append(&visit);
         self.visits.push(visit);
     }
 
@@ -185,6 +213,21 @@ mod tests {
         assert!(!worth_keeping("stales://settings"));
         assert!(!worth_keeping("about:blank"));
         assert!(worth_keeping("https://example.com"));
+    }
+
+    #[test]
+    fn title_updates_are_merged_when_loading() {
+        let lines = vec![
+            visit("https://a.example", "Loading…", 5),
+            visit("https://a.example", "A page", 5),
+            visit("https://a.example", "A page again", 9),
+        ];
+        let (visits, merged) = merge_title_updates(lines.into_iter());
+        assert!(merged);
+        assert_eq!(
+            visits,
+            vec![visit("https://a.example", "A page", 5), visit("https://a.example", "A page again", 9)]
+        );
     }
 
     #[test]

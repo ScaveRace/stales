@@ -247,7 +247,12 @@ fn build(app: &gtk::Application) -> Rc<Ui> {
     window.set_child(Some(&overlay));
 
     let history_days = config.history.keep_days;
-    let engine = Box::new(WebKitEngine::new(&actions::page_keys(&config.keys), &config.web.user_agent));
+    let options = crate::engine::webkit::Options {
+        user_agent: config.web.user_agent.clone(),
+        preload_tab: config.web.preload_tab,
+        autoplay: config.web.autoplay.clone(),
+    };
+    let engine = Box::new(WebKitEngine::new(&actions::page_keys(&config.keys), &options));
     let ui = Rc::new(Ui {
         state: RefCell::new(session::load(config.search())),
         config: RefCell::new(config),
@@ -327,10 +332,6 @@ pub fn refresh(ui: &Rc<Ui>) {
     // Everything that changes tabs ends up here, so this is where saving starts.
     session::save_soon(ui);
     theme::apply_space_color(ui);
-    match ui.layout.get() {
-        Layout::Arc => sidebar::refresh(ui),
-        Layout::Classic => topbar::refresh(ui),
-    }
 
     // Copy what we need out of the state first. Creating a page can trigger events
     // that change the state, and we must not be holding a borrow when that happens.
@@ -349,6 +350,13 @@ pub fn refresh(ui: &Rc<Ui>) {
             ui.stack.set_visible_child_name(&id.0.to_string());
         }
         None => ui.stack.set_visible_child_name("empty"),
+    }
+
+    // Redraw the tabs after the pages were made or closed: a tab without a page is
+    // shown dimmed, and drawing it before would mean drawing it twice.
+    match ui.layout.get() {
+        Layout::Arc => sidebar::refresh(ui),
+        Layout::Classic => topbar::refresh(ui),
     }
 
     let window_title = match title {
