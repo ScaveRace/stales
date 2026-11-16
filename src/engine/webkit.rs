@@ -2,6 +2,7 @@
 
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::time::Duration;
 
 use gtk::glib;
 use gtk::glib::translate::{FromGlibPtrFull, ToGlibPtr};
@@ -27,21 +28,51 @@ use super::{DownloadEvent, Engine, Page, PageEvent, PageKeys, Permission, Permis
 /// The keyboard script runs in its own JavaScript "world", hidden from the page's scripts.
 const WORLD: &str = "stales";
 
+/// Choices from the `[web]` part of config.toml.
+pub struct Options {
+    /// How Stales introduces itself to websites. Empty: a current Safari.
+    pub user_agent: String,
+    /// Keep one empty page ready in the background, so new tabs open faster.
+    pub preload_tab: bool,
+    /// May videos start by themselves: "allow", "muted" (only without sound) or "never".
+    pub autoplay: String,
+}
+
 pub struct WebKitEngine {
     /// Shared by all tabs: cookies, cache, logins and site data live here.
     session: NetworkSession,
+    /// Makes new, empty pages with Stales' settings and scripts.
+    maker: ViewMaker,
+    /// A page made in advance, so the next new tab opens faster (see `prepare_spare`).
+    spare: Rc<RefCell<Option<Spare>>>,
+    /// Keep a spare page ready (`[web] preload_tab` in config.toml).
+    preload: bool,
+}
+
+/// Everything needed to make a new page. Cheap to copy: the parts are shared.
+#[derive(Clone)]
+struct ViewMaker {
+    session: NetworkSession,
     /// keys.js with its settings in front.
-    keys_script: RefCell<String>,
+    keys_script: Rc<RefCell<String>>,
     /// Every tab's content manager, so new keyboard settings reach open tabs.
     contents: Rc<RefCell<Vec<TabContent>>>,
     /// How Stales introduces itself to websites.
     user_agent: String,
+    /// May videos start by themselves (see `Options::autoplay`).
+    autoplay: webkit6::AutoplayPolicy,
+}
+
+/// A new page that isn't connected to a tab yet.
+struct Spare {
+    view: WebView,
+    content: UserContentManager,
 }
 
 impl WebKitEngine {
-    pub fn new(keys: &PageKeys, user_agent: &str) -> Self {
+    pub fn new(keys: &PageKeys, options: &Options) -> Self {
         let settings = serde_json::to_string(keys).expect("key settings are always valid JSON");
-        let keys_script = RefCell::new(format!("const STALES = {settings};\n{}", include_str!("keys.js")));
+        let keys_script = format!("const STALES = {settings};\n{}", include_str!("keys.js"));
         let data_dir = glib::user_data_dir().join("stales");
         let cache_dir = glib::user_cache_dir().join("stales");
         let session = NetworkSession::new(Some(&path_str(&data_dir)), Some(&path_str(&cache_dir)));
@@ -59,8 +90,99 @@ impl WebKitEngine {
             data.set_favicons_enabled(true);
         }
 
-        let user_agent = if user_agent.trim().is_empty() { DEFAULT_USER_AGENT } else { user_agent.trim() }.to_string();
-        Self { session, keys_script, contents: Rc::default(), user_agent }
+        let user_agent = options.user_agent.trim();
+        let user_agent = if user_agent.is_empty() { DEFAULT_USER_AGENT } else { user_agent }.to_string();
+        let maker = ViewMaker {
+            session: session.clone(),
+            keys_script: Rc::new(RefCell::new(keys_script)),
+            contents: Rc::default(),
+            user_agent,
+            autoplay: autoplay_policy(&options.autoplay),
+        };
+        let engine = Self { session, maker, spare: Rc::default(), preload: options.preload_tab };
+        // The first spare page waits a little, so it doesn't slow down startup.
+        engine.prepare_spare(Duration::from_secs(3));
+        engine
+    }
+
+    /// Make a spare page after `delay`, unless there already is one.
+    ///
+    /// Each page runs in its own helper process, which WebKit starts inside a
+    /// security sandbox. Starting it takes about a tenth of a second, and a new
+    /// tab used to wait for that. The spare page starts its process in advance;
+    /// the next new tab takes it and is ready right away.
+    fn prepare_spare(&self, delay: Duration) {
+        if !self.preload {
+            return;
+        }
+        let (maker, spare) = (self.maker.clone(), self.spare.clone());
+        glib::timeout_add_local_once(delay, move || {
+            if spare.borrow().is_some() {
+                return;
+            }
+            let new = maker.make();
+            // Running a tiny script makes WebKit start the page's process now. Unlike
+            // loading "about:blank", this leaves nothing in the back/forward history.
+            new.view.evaluate_javascript("0", None, None, None::<&gtk::gio::Cancellable>, |_| {});
+            spare.replace(Some(new));
+        });
+    }
+}
+
+impl ViewMaker {
+    /// A new, empty page with Stales' settings and scripts.
+    fn make(&self) -> Spare {
+        // Each page gets the keyboard script, and a private channel to send us messages on.
+        let content = UserContentManager::new();
+        add_page_scripts(&content, &self.keys_script.borrow());
+        content.register_script_message_handler("stales", Some(WORLD));
+        // The settings page talks to us on "stalesSettings" (see `new_page`).
+        content.register_script_message_handler("stalesSettings", None);
+        {
+            let mut contents = self.contents.borrow_mut();
+            contents.retain(|c| c.upgrade().is_some());
+            contents.push(content.downgrade());
+        }
+
+        let policies = webkit6::WebsitePolicies::builder().autoplay(self.autoplay).build();
+        let view = WebView::builder()
+            .network_session(&self.session)
+            .user_content_manager(&content)
+            .website_policies(&policies)
+            .build();
+        view.set_hexpand(true);
+        view.set_vexpand(true);
+
+        if let Some(settings) = WebViewExt::settings(&view) {
+            settings.set_enable_developer_extras(true);
+            settings.set_enable_smooth_scrolling(true);
+            // Tell sites we are a current Safari (which is what WebKit is). WebKitGTK's
+            // own string claimed "Safari 60.5", so sites like YouTube served their slow
+            // compatibility version for ancient browsers.
+            settings.set_user_agent(Some(&self.user_agent));
+            // Speed: keep pages you leave ready, so Back is instant.
+            settings.set_enable_page_cache(true);
+            // Two-finger swipe on the touchpad goes back and forward.
+            settings.set_enable_back_forward_navigation_gestures(true);
+        }
+        Spare { view, content }
+    }
+}
+
+/// The `autoplay` choice from config.toml as WebKit's setting.
+///
+/// WebKit's own default lets videos start by themselves only without sound. Sites
+/// like YouTube then can't start the video you just opened: it waits, and after a
+/// few seconds may start muted. "allow" (Stales' default) lets it start right away.
+fn autoplay_policy(choice: &str) -> webkit6::AutoplayPolicy {
+    match choice.trim().to_lowercase().as_str() {
+        "muted" | "without-sound" => webkit6::AutoplayPolicy::AllowWithoutSound,
+        "never" | "off" | "deny" => webkit6::AutoplayPolicy::Deny,
+        "allow" | "" => webkit6::AutoplayPolicy::Allow,
+        other => {
+            eprintln!("stales: unknown autoplay choice '{other}', using allow");
+            webkit6::AutoplayPolicy::Allow
+        }
     }
 }
 
@@ -125,11 +247,12 @@ fn path_str(path: &std::path::Path) -> String {
 impl Engine for WebKitEngine {
     fn new_page(&self, on_event: Box<dyn Fn(PageEvent)>) -> Rc<dyn Page> {
         let on_event: Rc<dyn Fn(PageEvent)> = Rc::from(on_event);
+        // Take the spare page if one is ready, and make the next one a bit later,
+        // when the page that opens now has had time to load.
+        let spare = self.spare.take();
+        let Spare { view, content } = spare.unwrap_or_else(|| self.maker.make());
+        self.prepare_spare(Duration::from_secs(1));
 
-        // Each page gets the keyboard script, and a private channel to send us messages on.
-        let content = UserContentManager::new();
-        add_page_scripts(&content, &self.keys_script.borrow());
-        content.register_script_message_handler("stales", Some(WORLD));
         let f = on_event.clone();
         content.connect_script_message_received(Some("stales"), move |_, value| {
             f(PageEvent::Script(value.to_str().into()));
@@ -138,42 +261,16 @@ impl Engine for WebKitEngine {
         // The settings page talks to us on "stalesSettings". That name is visible to
         // every page, so a message only counts if it comes while this tab shows one of
         // our own stales:// pages, which websites can't open or embed.
-        let view_slot: Rc<RefCell<glib::WeakRef<WebView>>> = Rc::default();
-        content.register_script_message_handler("stalesSettings", None);
-        let (f, slot) = (on_event.clone(), view_slot.clone());
+        let (f, weak_view) = (on_event.clone(), view.downgrade());
         content.connect_script_message_received(Some("stalesSettings"), move |_, value| {
             let from_own_page =
-                slot.borrow().upgrade().and_then(|v| v.uri()).is_some_and(|uri| uri.starts_with("stales://"));
+                weak_view.upgrade().and_then(|v| v.uri()).is_some_and(|uri| uri.starts_with("stales://"));
             if from_own_page {
                 f(PageEvent::Settings(value.to_str().into()));
             } else {
                 eprintln!("stales: ignored a settings message from a website");
             }
         });
-
-        {
-            let mut contents = self.contents.borrow_mut();
-            contents.retain(|c| c.upgrade().is_some());
-            contents.push(content.downgrade());
-        }
-
-        let view = WebView::builder().network_session(&self.session).user_content_manager(&content).build();
-        view_slot.borrow().set(Some(&view));
-        view.set_hexpand(true);
-        view.set_vexpand(true);
-
-        if let Some(settings) = WebViewExt::settings(&view) {
-            settings.set_enable_developer_extras(true);
-            settings.set_enable_smooth_scrolling(true);
-            // Tell sites we are a current Safari (which is what WebKit is). WebKitGTK's
-            // own string claimed "Safari 60.5", so sites like YouTube served their slow
-            // compatibility version for ancient browsers.
-            settings.set_user_agent(Some(&self.user_agent));
-            // Speed: keep pages you leave ready, so Back is instant.
-            settings.set_enable_page_cache(true);
-            // Two-finger swipe on the touchpad goes back and forward.
-            settings.set_enable_back_forward_navigation_gestures(true);
-        }
 
         // Turn WebKit's signals into our own `PageEvent`s.
 
@@ -285,13 +382,13 @@ impl Engine for WebKitEngine {
     fn set_page_keys(&self, keys: &PageKeys) {
         let settings = serde_json::to_string(keys).expect("key settings are always valid JSON");
         let script = format!("const STALES = {settings};\n{}", include_str!("keys.js"));
-        for content in self.contents.borrow().iter() {
+        for content in self.maker.contents.borrow().iter() {
             if let Some(content) = content.upgrade() {
                 content.remove_all_scripts();
                 add_page_scripts(&content, &script);
             }
         }
-        self.keys_script.replace(script);
+        self.maker.keys_script.replace(script);
     }
 
     fn set_download_handler(&self, on_event: Box<dyn Fn(DownloadEvent)>) {

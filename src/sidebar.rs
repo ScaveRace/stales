@@ -9,14 +9,16 @@
 //!
 //! In compact mode (Ctrl+Shift+S, or drag it narrow) only the icons are shown.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::fmt::Write as _;
 use std::rc::Rc;
 
+use gtk::gdk;
 use gtk::pango::EllipsizeMode;
 use gtk::prelude::*;
 
 use crate::command_bar::{self, Mode};
-use crate::state::{Selected, Tab};
+use crate::state::{Selected, State, Tab, TabId};
 use crate::window::{self, Ui};
 
 pub struct Sidebar {
@@ -40,6 +42,137 @@ pub struct Sidebar {
     pub new_tab: gtk::Button,
     pub tabs: gtk::ListBox,
     pub spaces: gtk::Box,
+    /// What the lists were last built from (see `layout_key`).
+    shown_key: RefCell<String>,
+    /// The tabs' widgets, for updating titles and icons in place.
+    shown: RefCell<Vec<ShownTab>>,
+}
+
+/// Where a tab's icon sits: first in a row of widgets, or alone inside a button.
+pub enum IconSpot {
+    First(gtk::Box),
+    Only(gtk::Button),
+}
+
+/// One tab's widgets in the sidebar or the tab strip. Kept so that a new title or
+/// icon (which arrive many times while a page loads) can be shown without
+/// rebuilding the whole list of tabs.
+pub struct ShownTab {
+    id: TabId,
+    /// The widget that has the tooltip.
+    widget: gtk::Widget,
+    icon_spot: IconSpot,
+    title: Option<gtk::Label>,
+    /// The tooltip shows the address (true) or the title (false).
+    tooltip_is_url: bool,
+    /// What the icon shows now: the site's icon, or else this letter.
+    icon: Option<gdk::Texture>,
+    letter: String,
+}
+
+impl ShownTab {
+    pub fn new(
+        ui: &Ui,
+        tab: &Tab,
+        widget: &impl IsA<gtk::Widget>,
+        icon_spot: IconSpot,
+        title: Option<gtk::Label>,
+        tooltip_is_url: bool,
+    ) -> Self {
+        let shown = Self {
+            id: tab.id,
+            widget: widget.clone().upcast(),
+            icon_spot,
+            title,
+            tooltip_is_url,
+            icon: ui.favicons.borrow().get(&tab.id).cloned(),
+            letter: tab.initial(),
+        };
+        let icon = favicon(ui, tab);
+        match &shown.icon_spot {
+            IconSpot::First(row) => row.prepend(&icon),
+            IconSpot::Only(button) => button.set_child(Some(&icon)),
+        }
+        shown.widget.set_tooltip_text(Some(if tooltip_is_url { &tab.url } else { &tab.title }));
+        shown
+    }
+
+    /// Show the tab's current title, address and icon. Only touches what changed.
+    pub fn update(&mut self, ui: &Ui, tab: &Tab) {
+        if let Some(title) = &self.title
+            && title.label() != tab.title
+        {
+            title.set_label(&tab.title);
+        }
+        let tooltip = if self.tooltip_is_url { &tab.url } else { &tab.title };
+        if self.widget.tooltip_text().as_deref() != Some(tooltip.as_str()) {
+            self.widget.set_tooltip_text(Some(tooltip));
+        }
+        let icon = ui.favicons.borrow().get(&tab.id).cloned();
+        let letter = tab.initial();
+        // With a site icon the letter doesn't matter.
+        let same = match (&icon, &self.icon) {
+            (Some(new), Some(old)) => new == old,
+            (None, None) => letter == self.letter,
+            _ => false,
+        };
+        if same {
+            return;
+        }
+        let widget = favicon(ui, tab);
+        match &self.icon_spot {
+            IconSpot::First(row) => {
+                if let Some(old) = row.first_child() {
+                    row.remove(&old);
+                }
+                row.prepend(&widget);
+            }
+            IconSpot::Only(button) => button.set_child(Some(&widget)),
+        }
+        self.icon = icon;
+        self.letter = letter;
+    }
+}
+
+/// Everything the tab list's layout depends on, except titles, icons and addresses.
+/// When this is the same as last time, the rows are updated in place instead of
+/// rebuilt. Rebuilding means new widgets, styles and layout for every tab: with
+/// 50 tabs about 15 ms, several times while each page loads.
+pub fn layout_key(ui: &Ui, state: &State, extra: &str) -> String {
+    let space = state.space();
+    let pages = ui.pages.borrow();
+    let mut key = format!("{}|{:?}|{extra}|", state.current, space.active);
+    for s in &state.spaces {
+        let _ = write!(key, "{}{};", s.icon, s.name);
+    }
+    key.push('|');
+    for t in &space.pinned {
+        let _ = write!(key, "{}:{},", t.id.0, pages.contains_key(&t.id));
+    }
+    key.push('|');
+    for t in &space.tabs {
+        let _ = write!(key, "{}:{:?}:{},", t.id.0, t.folder, pages.contains_key(&t.id));
+    }
+    key.push('|');
+    for f in &space.folders {
+        let _ = write!(key, "{}:{}:{};", f.id, f.name, f.open);
+    }
+    key
+}
+
+/// Update the shown tabs in place (see `layout_key`).
+pub fn update_shown(ui: &Ui, state: &State, shown: &mut [ShownTab]) {
+    let space = state.space();
+    for item in shown {
+        if let Some(tab) = space.pinned.iter().chain(&space.tabs).find(|t| t.id == item.id) {
+            item.update(ui, tab);
+        }
+    }
+}
+
+/// Rebuild the tab list at the next refresh, even if nothing seems to have changed.
+pub fn rebuild_later(sb: &Sidebar) {
+    sb.shown_key.borrow_mut().clear();
 }
 
 pub fn icon_button(icon: &str, tooltip: &str) -> gtk::Button {
@@ -170,6 +303,8 @@ pub fn build() -> Sidebar {
         new_tab,
         tabs,
         spaces,
+        shown_key: RefCell::default(),
+        shown: RefCell::default(),
     }
 }
 
@@ -253,9 +388,17 @@ pub fn refresh(ui: &Rc<Ui>) {
         None => sb.url_label.set_label("Search or enter address"),
     }
 
-    // Pinned tiles (drag a tab here to pin it; drag a tile onto another to reorder)
     let settings = ui.config.borrow().sidebar.clone();
     let compact = sb.compact.get();
+    let key = layout_key(ui, &state, &format!("{compact}{settings:?}"));
+    if *sb.shown_key.borrow() == key {
+        update_shown(ui, &state, &mut sb.shown.borrow_mut());
+        return;
+    }
+    sb.shown_key.replace(key);
+    let mut shown = Vec::new();
+
+    // Pinned tiles (drag a tab here to pin it; drag a tile onto another to reorder)
     sb.pinned.remove_all();
     sb.pinned.set_visible(!space.pinned.is_empty());
     sb.pinned.set_max_children_per_line(if compact { 1 } else { settings.pinned_per_row.clamp(1, 8) });
@@ -273,8 +416,7 @@ pub fn refresh(ui: &Rc<Ui>) {
         if !ui.pages.borrow().contains_key(&tab.id) {
             tile.add_css_class("asleep");
         }
-        tile.set_tooltip_text(Some(&tab.title));
-        tile.set_child(Some(&favicon(ui, tab)));
+        shown.push(ShownTab::new(ui, tab, &tile, IconSpot::Only(tile.clone()), None, false));
         let u = ui.clone();
         tile.connect_clicked(move |_| {
             u.state.borrow_mut().select(Selected::Pinned(i));
@@ -297,7 +439,7 @@ pub fn refresh(ui: &Rc<Ui>) {
             sb.tabs.append(&folder_row(ui, folder, inside.len(), compact));
             if folder.open {
                 for i in inside {
-                    sb.tabs.append(&tab_row(ui, space, i, compact, true));
+                    sb.tabs.append(&tab_row(ui, space, i, compact, true, &mut shown));
                 }
             }
         }
@@ -306,9 +448,10 @@ pub fn refresh(ui: &Rc<Ui>) {
         let in_known_folder =
             folders_on && space.tabs[i].folder.is_some_and(|id| space.folders.iter().any(|f| f.id == id));
         if !in_known_folder {
-            sb.tabs.append(&tab_row(ui, space, i, compact, false));
+            sb.tabs.append(&tab_row(ui, space, i, compact, false, &mut shown));
         }
     }
+    sb.shown.replace(shown);
 
     // Space switcher
     while let Some(child) = sb.spaces.first_child() {
@@ -340,7 +483,14 @@ pub fn refresh(ui: &Rc<Ui>) {
 
 // ---------- Rows of the tab list ----------
 
-fn tab_row(ui: &Rc<Ui>, space: &crate::state::Space, i: usize, compact: bool, in_folder: bool) -> gtk::ListBoxRow {
+fn tab_row(
+    ui: &Rc<Ui>,
+    space: &crate::state::Space,
+    i: usize,
+    compact: bool,
+    in_folder: bool,
+    shown: &mut Vec<ShownTab>,
+) -> gtk::ListBoxRow {
     let tab = &space.tabs[i];
     let row = gtk::ListBoxRow::new();
     row.set_widget_name(&format!("tab:{i}"));
@@ -355,14 +505,13 @@ fn tab_row(ui: &Rc<Ui>, space: &crate::state::Space, i: usize, compact: bool, in
     if !ui.pages.borrow().contains_key(&tab.id) {
         row.add_css_class("asleep");
     }
-    row.set_tooltip_text(Some(if compact { &tab.title } else { &tab.url }));
     let content = gtk::Box::new(gtk::Orientation::Horizontal, 10);
-    content.append(&favicon(ui, tab));
     row.set_child(Some(&content));
     drag_source(ui, &row, Selected::Tab(i));
     drop_target(ui, &row, Drop::List { index: i, folder: tab.folder });
     tab_menu(ui, &row, Selected::Tab(i));
     if compact {
+        shown.push(ShownTab::new(ui, tab, &row, IconSpot::First(content), None, false));
         return row;
     }
     let title = gtk::Label::new(Some(&tab.title));
@@ -377,6 +526,7 @@ fn tab_row(ui: &Rc<Ui>, space: &crate::state::Space, i: usize, compact: bool, in
     close.connect_clicked(move |_| window::close_tab(&u, Selected::Tab(i)));
     content.append(&title);
     content.append(&close);
+    shown.push(ShownTab::new(ui, tab, &row, IconSpot::First(content), Some(title), true));
     row
 }
 
@@ -425,12 +575,14 @@ fn rename_in_place(ui: &Rc<Ui>, id: u64, current: &str, content: &gtk::Box, labe
     let u = ui.clone();
     entry.connect_activate(move |entry| {
         u.state.borrow_mut().rename_folder(id, &entry.text());
+        rebuild_later(&u.sidebar);
         window::refresh_later(&u);
     });
     let keys = gtk::EventControllerKey::new();
     let u = ui.clone();
     keys.connect_key_pressed(move |_, key, _, _| {
         if key == gtk::gdk::Key::Escape {
+            rebuild_later(&u.sidebar);
             window::refresh_later(&u);
             return gtk::glib::Propagation::Stop;
         }

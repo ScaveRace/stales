@@ -77,11 +77,23 @@ impl Default for DownloadsConfig {
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct WebConfig {
     /// How Stales introduces itself to websites. Empty: a current Safari.
     pub user_agent: String,
+    /// Keep one empty page ready in the background, so new tabs open faster.
+    pub preload_tab: bool,
+    /// May videos start by themselves: "allow", "muted" or "never".
+    pub autoplay: String,
+    /// How GTK draws the window: "gl", "vulkan" or "auto" (see main.rs).
+    pub renderer: String,
+}
+
+impl Default for WebConfig {
+    fn default() -> Self {
+        Self { user_agent: String::new(), preload_tab: true, autoplay: "allow".into(), renderer: "gl".into() }
+    }
 }
 
 #[derive(Debug, Deserialize)]

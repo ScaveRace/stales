@@ -28,6 +28,7 @@ const APP_ID: &str = "dev.stales.Stales";
 fn main() -> gtk::glib::ExitCode {
     make_files_private();
     protect_memory();
+    choose_renderer(&config::load().web.renderer);
     // HANDLES_OPEN: `stales https://example.com` (or clicking a link in another app
     // when Stales is your default browser) opens that address. GTK makes Stales a
     // single instance: if it is already running, the address goes to that window.
@@ -51,6 +52,36 @@ fn main() -> gtk::glib::ExitCode {
         }
     });
     app.run()
+}
+
+/// Pick how GTK draws the window. This has to happen before GTK starts.
+///
+/// Since GTK 4.16 GTK draws with Vulkan. Web pages arrive from WebKit as GPU
+/// images in a format Intel's Vulkan driver can't take, so GTK copied every frame
+/// of every page through normal memory and back, using two CPU cores while a video
+/// played (and making scrolling heavier). GTK's OpenGL renderer takes the images
+/// directly: Stales' CPU use during a YouTube video went from ~180 % to ~14 %.
+///
+/// `[web] renderer` in config.toml: "gl" (default), "vulkan", or "auto" (GTK's
+/// own choice). A GSK_RENDERER you set yourself always wins.
+fn choose_renderer(choice: &str) {
+    if std::env::var_os("GSK_RENDERER").is_some() {
+        return;
+    }
+    let minor = gtk::minor_version();
+    let value = match choice.trim().to_lowercase().as_str() {
+        "auto" => return,
+        "vulkan" => "vulkan",
+        // Before 4.16 GTK already uses OpenGL. The new OpenGL renderer was called
+        // "ngl" until GTK 4.18 renamed it to "gl" (before that, "gl" was the old one).
+        _ if minor < 16 => return,
+        _ if minor < 18 => "ngl",
+        _ => "gl",
+    };
+    // SAFETY: nothing else is running yet (no other threads that read the environment).
+    unsafe {
+        std::env::set_var("GSK_RENDERER", value);
+    }
 }
 
 /// Don't write this process's memory to crash files ("core dumps"): it can briefly

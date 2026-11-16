@@ -96,3 +96,16 @@ folder = ""
 # (a current Safari, which is what Stales' engine is). Only change it if a site
 # refuses to work, e.g. to pretend to be Chrome.
 user_agent = ""
+# Keep one empty page ready in the background, so a new tab opens about a tenth
+# of a second faster. Costs one extra helper process (roughly 60-100 MB of memory).
+preload_tab = true
+# May videos start playing by themselves?
+#   "allow"  yes (a video you open, e.g. on YouTube, starts right away)
+#   "muted"  only without sound (WebKit's default; YouTube then waits or starts muted)
+#   "never"  only when you press play
+autoplay = "allow"
+# How the window is drawn: "gl" (OpenGL, fastest with WebKit), "vulkan", or "auto"
+# (GTK's choice, Vulkan in newer versions). With Vulkan, Intel graphics copy every
+# frame of a page through normal memory, which costs a lot of CPU during videos.
+# Takes effect after a restart.
+renderer = "gl"

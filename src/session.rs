@@ -1,7 +1,8 @@
 //! Saving your Spaces and tabs, so they come back when you start Stales again.
 //!
-//! Stored in `~/.local/share/stales/session.json`. Saved a moment after every change
-//! (not on every tiny change while a page loads) and once more when the window closes.
+//! Stored in `~/.local/share/stales/session.json`. Saved a few seconds after a change
+//! (not on every tiny change while a page loads), only if something really changed,
+//! and once more when the window closes.
 //! The file is written to a temporary file first and then renamed, so a crash or power
 //! cut while saving never leaves you with half a file.
 //!
@@ -9,6 +10,7 @@
 //! Each tab also keeps its back/forward history (and scroll position), which the
 //! engine gives us as bytes and we store as base64 text.
 
+use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
@@ -21,6 +23,15 @@ use crate::state::{Selected, Space, State, Tab};
 use crate::window::Ui;
 
 const VERSION: u32 = 1;
+
+/// How long to wait after a change before saving. A page that loads changes its
+/// tab's title, address and icon several times; they all end up in one save.
+const SAVE_DELAY: Duration = Duration::from_secs(3);
+
+thread_local! {
+    /// The text last written to the file, so an unchanged session isn't written again.
+    static LAST_SAVED: RefCell<String> = const { RefCell::new(String::new()) };
+}
 
 #[derive(Serialize)]
 struct SessionRef<'a> {
@@ -92,26 +103,32 @@ fn to_json(state: &State) -> String {
     serde_json::to_string_pretty(&session).expect("the session is always valid JSON")
 }
 
-/// Save right now. Writes a temporary file, then swaps it in.
+/// Save right now (if anything changed since the last save). Writes a temporary
+/// file, then swaps it in.
 pub fn store(state: &State) {
+    let json = to_json(state);
+    if LAST_SAVED.with(|last| *last.borrow() == json) {
+        return;
+    }
     let path = path();
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
     let temp = path.with_extension("json.tmp");
-    let result = std::fs::write(&temp, to_json(state)).and_then(|()| std::fs::rename(&temp, &path));
-    if let Err(e) = result {
-        eprintln!("stales: could not save tabs to {}: {e}", path.display());
+    let result = std::fs::write(&temp, &json).and_then(|()| std::fs::rename(&temp, &path));
+    match result {
+        Ok(()) => LAST_SAVED.with(|last| *last.borrow_mut() = json),
+        Err(e) => eprintln!("stales: could not save tabs to {}: {e}", path.display()),
     }
 }
 
-/// Save in a moment. Many changes in a row (a page loading, typing) become one save.
+/// Save in a few seconds. Many changes in a row (a page loading, typing) become one save.
 pub fn save_soon(ui: &Rc<Ui>) {
     if ui.save_queued.replace(true) {
         return;
     }
     let weak = Rc::downgrade(ui);
-    glib::timeout_add_local_once(Duration::from_millis(800), move || {
+    glib::timeout_add_local_once(SAVE_DELAY, move || {
         if let Some(ui) = weak.upgrade() {
             ui.save_queued.set(false);
             crate::window::capture_histories(&ui);
