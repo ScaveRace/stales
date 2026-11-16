@@ -12,7 +12,7 @@
     <ul>
       <li>Arc-style sidebar with Spaces, pinned tabs and a command bar</li>
       <li>Vimium-style keyboard control with link hints</li>
-      <li>Built-in ad and tracker blocker using uBlock Origin's filter lists</li>
+      <li>Password manager using the system keyring</li>
       <li>Themes, per-Space colours and your own CSS with live reload</li>
     </ul>
   </description>

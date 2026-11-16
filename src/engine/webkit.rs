@@ -1,6 +1,6 @@
 //! The WebKitGTK backend: the same engine Safari and GNOME Web use, built for Linux.
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::rc::Rc;
 
 use gtk::glib;
@@ -8,49 +8,16 @@ use gtk::glib::translate::{FromGlibPtrFull, ToGlibPtr};
 use gtk::prelude::*;
 use webkit6::prelude::*;
 use webkit6::{
-    CookieAcceptPolicy, CookiePersistentStorage, FindOptions, NetworkSession, UserContentFilter,
-    UserContentFilterStore, UserContentInjectedFrames, UserContentManager, UserScript, UserScriptInjectionTime,
-    WebView, WebViewSessionState,
+    CookieAcceptPolicy, CookiePersistentStorage, FindOptions, NetworkSession, UserContentInjectedFrames,
+    UserContentManager, UserScript, UserScriptInjectionTime, WebView, WebViewSessionState,
 };
 
 /// What Stales tells websites it is: a current Safari on Linux.
 pub const DEFAULT_USER_AGENT: &str =
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15";
 
-/// Name the compiled ad blocker rules are stored under.
-const BLOCKLIST_ID: &str = "stales-blocker";
-
-/// A tab's content manager, and whether blocking is on for it.
-type BlockedTab = (glib::WeakRef<UserContentManager>, Rc<Cell<bool>>);
-
-/// The ad blocker rules and every tab that uses them. WebKit applies the rules
-/// itself, inside the engine, before a request even starts.
-#[derive(Default)]
-struct Blocking {
-    rules: RefCell<Vec<UserContentFilter>>,
-    tabs: RefCell<Vec<BlockedTab>>,
-}
-
-impl Blocking {
-    fn apply(&self, content: &UserContentManager, on: bool) {
-        content.remove_all_filters();
-        if on {
-            for rules in self.rules.borrow().iter() {
-                content.add_filter(rules);
-            }
-        }
-    }
-
-    fn apply_everywhere(&self) {
-        let mut tabs = self.tabs.borrow_mut();
-        tabs.retain(|(content, _)| content.upgrade().is_some());
-        for (content, on) in tabs.iter() {
-            if let Some(content) = content.upgrade() {
-                self.apply(&content, on.get());
-            }
-        }
-    }
-}
+/// A tab's content manager (for updating its page scripts later).
+type TabContent = glib::WeakRef<UserContentManager>;
 
 /// Histories bigger than this aren't saved (keeps the session file small).
 const MAX_HISTORY_BYTES: usize = 256 * 1024;
@@ -65,11 +32,10 @@ pub struct WebKitEngine {
     session: NetworkSession,
     /// keys.js with its settings in front.
     keys_script: RefCell<String>,
-    blocking: Rc<Blocking>,
+    /// Every tab's content manager, so new keyboard settings reach open tabs.
+    contents: Rc<RefCell<Vec<TabContent>>>,
     /// How Stales introduces itself to websites.
     user_agent: String,
-    /// Where compiled ad blocker rules are kept between runs.
-    filter_store: UserContentFilterStore,
 }
 
 impl WebKitEngine {
@@ -93,9 +59,8 @@ impl WebKitEngine {
             data.set_favicons_enabled(true);
         }
 
-        let filter_store = UserContentFilterStore::new(&path_str(&data_dir.join("filters")));
         let user_agent = if user_agent.trim().is_empty() { DEFAULT_USER_AGENT } else { user_agent.trim() }.to_string();
-        Self { session, keys_script, blocking: Rc::default(), user_agent, filter_store }
+        Self { session, keys_script, contents: Rc::default(), user_agent }
     }
 }
 
@@ -186,9 +151,11 @@ impl Engine for WebKitEngine {
             }
         });
 
-        let blocking_on = Rc::new(Cell::new(true));
-        self.blocking.apply(&content, true);
-        self.blocking.tabs.borrow_mut().push((content.downgrade(), blocking_on.clone()));
+        {
+            let mut contents = self.contents.borrow_mut();
+            contents.retain(|c| c.upgrade().is_some());
+            contents.push(content.downgrade());
+        }
 
         let view = WebView::builder().network_session(&self.session).user_content_manager(&content).build();
         view_slot.borrow().set(Some(&view));
@@ -291,7 +258,7 @@ impl Engine for WebKitEngine {
             finder.connect_failed_to_find_text(move |_| f(PageEvent::FindResult(None)));
         }
 
-        Rc::new(WebKitPage { view, content, blocking: self.blocking.clone(), blocking_on })
+        Rc::new(WebKitPage { view })
     }
 
     fn set_internal_pages(&self, render: super::PageRenderer) {
@@ -315,15 +282,10 @@ impl Engine for WebKitEngine {
         });
     }
 
-    fn clear_blocklist(&self) {
-        self.blocking.rules.replace(Vec::new());
-        self.blocking.apply_everywhere();
-    }
-
     fn set_page_keys(&self, keys: &PageKeys) {
         let settings = serde_json::to_string(keys).expect("key settings are always valid JSON");
         let script = format!("const STALES = {settings};\n{}", include_str!("keys.js"));
-        for (content, _) in self.blocking.tabs.borrow().iter() {
+        for content in self.contents.borrow().iter() {
             if let Some(content) = content.upgrade() {
                 content.remove_all_scripts();
                 add_page_scripts(&content, &script);
@@ -410,50 +372,6 @@ impl Engine for WebKitEngine {
         });
     }
 
-    fn load_saved_blocklist(&self, parts: usize, done: Box<dyn FnOnce(bool)>) {
-        if parts == 0 {
-            done(false);
-            return;
-        }
-        let (store, blocking) = (self.filter_store.clone(), self.blocking.clone());
-        glib::spawn_future_local(async move {
-            let mut loaded = Vec::new();
-            for i in 0..parts {
-                match store.load_future(&format!("{BLOCKLIST_ID}-{i}")).await {
-                    Ok(rules) => loaded.push(rules),
-                    Err(_) => return done(false),
-                }
-            }
-            blocking.rules.replace(loaded);
-            blocking.apply_everywhere();
-            done(true);
-        });
-    }
-
-    fn install_blocklist(&self, parts: Vec<String>, done: Box<dyn FnOnce(Result<(), String>)>) {
-        let (store, blocking) = (self.filter_store.clone(), self.blocking.clone());
-        glib::spawn_future_local(async move {
-            let mut compiled = Vec::new();
-            for (i, json) in parts.into_iter().enumerate() {
-                let source = glib::Bytes::from_owned(json.into_bytes());
-                match store.save_future(&format!("{BLOCKLIST_ID}-{i}"), &source).await {
-                    Ok(rules) => compiled.push(rules),
-                    Err(e) => return done(Err(e.to_string())),
-                }
-            }
-            let used = compiled.len();
-            blocking.rules.replace(compiled);
-            blocking.apply_everywhere();
-            done(Ok(()));
-            // Delete compiled rules nobody uses any more (fewer parts than last time,
-            // or the single-list format of older versions). They can be large.
-            let _ = store.remove_future(BLOCKLIST_ID).await;
-            for i in used..used + 8 {
-                let _ = store.remove_future(&format!("{BLOCKLIST_ID}-{i}")).await;
-            }
-        });
-    }
-
     fn cached_favicon(&self, url: &str, done: Box<dyn FnOnce(gtk::gdk::Texture)>) {
         let Some(icons) = self.session.website_data_manager().and_then(|d| d.favicon_database()) else { return };
         icons.favicon(url, None::<&gtk::gio::Cancellable>, move |result| {
@@ -466,9 +384,6 @@ impl Engine for WebKitEngine {
 
 struct WebKitPage {
     view: WebView,
-    content: UserContentManager,
-    blocking: Rc<Blocking>,
-    blocking_on: Rc<Cell<bool>>,
 }
 
 impl Page for WebKitPage {
@@ -561,11 +476,6 @@ impl Page for WebKitPage {
                 true
             }
             None => false,
-        }
-    }
-    fn set_blocking(&self, on: bool) {
-        if self.blocking_on.replace(on) != on {
-            self.blocking.apply(&self.content, on);
         }
     }
     fn close(&self) {

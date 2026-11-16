@@ -34,10 +34,7 @@ use crate::saved::{self, SIDEBAR_COMPACT, SIDEBAR_DEFAULT, Saved};
 use crate::sidebar::{self, Sidebar};
 use crate::state::{Selected, State, TabId};
 use crate::topbar::{self, TopBar};
-use crate::{blocker, session, theme};
-
-/// A page waiting to load until the blocker is ready: the page, its address, its saved history.
-type HeldPage = (Rc<dyn Page>, String, Option<String>);
+use crate::{session, theme};
 
 /// Where the tabs are: in the Arc-style sidebar, or along the top (classic).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -98,10 +95,6 @@ pub struct Ui {
     refresh_queued: Cell<bool>,
     /// A session save is already scheduled (see session.rs).
     pub save_queued: Cell<bool>,
-    pub blocker_status: RefCell<blocker::Status>,
-    /// Pages wait to load while this is set (the blocker's rules are being loaded).
-    pub hold_pages: Cell<bool>,
-    held_pages: RefCell<Vec<HeldPage>>,
     pub themes: theme::Themes,
     /// The keyboard shortcuts, replaced when you change keys in the settings.
     pub shortcuts: RefCell<Option<gtk::ShortcutController>>,
@@ -281,9 +274,6 @@ fn build(app: &gtk::Application) -> Rc<Ui> {
         pending_login: RefCell::new(None),
         refresh_queued: Cell::new(false),
         save_queued: Cell::new(false),
-        blocker_status: RefCell::new(blocker::Status::Off),
-        hold_pages: Cell::new(false),
-        held_pages: RefCell::new(Vec::new()),
         themes,
         shortcuts: RefCell::new(None),
     });
@@ -296,8 +286,8 @@ fn build(app: &gtk::Application) -> Rc<Ui> {
     }));
 
     theme::start(&ui);
-    // Before any page loads: pages wait until the blocker's rules are in place.
-    blocker::start(&ui);
+    // The ad blocker of earlier versions kept large compiled rule files; remove them.
+    let _ = std::fs::remove_dir_all(glib::user_data_dir().join("stales").join("filters"));
     topbar::connect(&ui);
     crate::settings::move_old_choices_to_config(&ui);
     let layout_name = ui.config.borrow().appearance.layout.clone();
@@ -437,14 +427,7 @@ fn page_for(ui: &Rc<Ui>, id: TabId, url: &str, history: Option<&str>) -> Rc<dyn 
     }));
     ui.stack.add_named(&page.widget(), Some(&id.0.to_string()));
     ui.pages.borrow_mut().insert(id, page.clone());
-    page.set_blocking(!blocker::is_allowed(ui, url));
-    if ui.hold_pages.get() {
-        // The blocker is still loading its rules (a fraction of a second at startup).
-        // Loading now would let the first page's ads through, so wait for it.
-        ui.held_pages.borrow_mut().push((page.clone(), url.to_string(), history.map(str::to_string)));
-    } else {
-        start_loading(&page, url, history);
-    }
+    start_loading(&page, url, history);
     page
 }
 
@@ -453,15 +436,6 @@ fn start_loading(page: &Rc<dyn Page>, url: &str, history: Option<&str>) {
     let restored = history.and_then(|text| BASE64.decode(text).ok()).is_some_and(|data| page.restore_history(&data));
     if !restored {
         page.load(url);
-    }
-}
-
-/// The blocker is ready (or gave up): load the pages that were waiting for it.
-pub fn release_held_pages(ui: &Rc<Ui>) {
-    ui.hold_pages.set(false);
-    let held = std::mem::take(&mut *ui.held_pages.borrow_mut());
-    for (page, url, history) in held {
-        start_loading(&page, &url, history.as_deref());
     }
 }
 
@@ -504,11 +478,6 @@ fn handle_page_event(ui: &Rc<Ui>, id: TabId, event: PageEvent) {
         }
         PageEvent::Url(url) => {
             if !url.is_empty() {
-                // The tab went to another site: use that site's blocker setting.
-                let page = ui.pages.borrow().get(&id).cloned();
-                if let Some(page) = page {
-                    page.set_blocking(!blocker::is_allowed(ui, &url));
-                }
                 if let Some(tab) = ui.state.borrow_mut().tab_mut(id) {
                     tab.url = url;
                 }

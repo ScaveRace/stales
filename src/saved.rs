@@ -57,8 +57,6 @@ pub struct Saved {
     pub sidebar_width: i32,
     /// Icons-only sidebar.
     pub sidebar_compact: bool,
-    /// Sites where you turned the ad blocker off with the shield button.
-    pub blocker_allow: Vec<String>,
     /// Sites where you chose "Never" in the save-login bar.
     pub password_never: Vec<String>,
     /// What you answered when sites asked for your location, camera, … (per site).
@@ -76,7 +74,6 @@ impl Default for Saved {
         Self {
             sidebar_width: SIDEBAR_DEFAULT,
             sidebar_compact: false,
-            blocker_allow: Vec::new(),
             password_never: Vec::new(),
             site_permissions: Vec::new(),
             theme: None,
@@ -93,7 +90,6 @@ pub fn load() -> Saved {
     let text = std::fs::read_to_string(path()).unwrap_or_default();
     let mut saved: Saved = toml::from_str(&text).unwrap_or_default();
     saved.sidebar_width = saved.sidebar_width.clamp(SIDEBAR_MIN, SIDEBAR_MAX);
-    saved.blocker_allow.retain(|site| !site.trim().is_empty());
     saved
 }
 

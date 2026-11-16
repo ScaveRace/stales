@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Removed the built-in ad blocker for now (it slowed pages down and broke some
+  sites); it may come back later in a different form. Old rule files are deleted.
+
 ## 0.1.0 (2026-11-10)
 
 First public version.

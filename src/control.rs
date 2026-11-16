@@ -11,7 +11,7 @@
 //! Commands: open <text>, go <text>, select <n>, pin <n>, close, back, forward,
 //! reload, space <n>, new-space, sidebar, cmdbar [text], cmdbar-edit, cmdbar-close,
 //! search-engine <name>, action <name>, page-key <key>, find <text>, find-count,
-//! sidebar-width, blocker, blocker-update, js <code>, settings-msg <json>, theme <name>, themes, layout <arc|classic>, space-color <name>, state
+//! sidebar-width, js <code>, settings-msg <json>, theme <name>, themes, layout <arc|classic>, space-color <name>, state
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::fs::PermissionsExt;
@@ -137,8 +137,6 @@ fn run(ui: &Rc<Ui>, line: &str) -> String {
         }
         "find-count" => return ui.find_bar.count.label().to_string(),
         "sidebar-width" => return ui.sidebar.root.width_request().to_string(),
-        "blocker" => return ui.blocker_status.borrow().describe(),
-        "blocker-update" => crate::blocker::update(ui),
         "theme" => {
             if !crate::theme::set(ui, arg) {
                 return format!("error: no theme '{arg}'");

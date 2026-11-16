@@ -1,7 +1,6 @@
 //! Stales: a fast, customisable browser for Linux with an Arc-style sidebar.
 
 mod actions;
-mod blocker;
 mod command_bar;
 mod config;
 mod control;

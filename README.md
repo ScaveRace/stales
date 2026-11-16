@@ -33,7 +33,6 @@ Arc showed how pleasant a browser can be when tabs live in a sidebar and the bro
 - <kbd>F1</kbd> shows every shortcut. Change any of them in one text file.
 
 **Private by default**
-- A built-in **ad and tracker blocker** uses the same filter lists as uBlock Origin (130 000+ rules). They're applied inside the web engine, so it's faster than an extension. The shield button turns it off per site.
 - Third-party cookies are refused, and WebKit's tracking prevention is on.
 - No accounts, no telemetry, no sync servers.
 - **Sites ask first:** location, camera, microphone, notifications, screen sharing and downloads need your "Allow" (remembered per site, changeable in Settings).
@@ -43,7 +42,7 @@ Arc showed how pleasant a browser can be when tabs live in a sidebar and the bro
 
 **Make it yours**
 - **Setup on first start:** choose layout, theme, search engine, keyboard style and privacy before you browse.
-- **Settings page** (<kbd>Ctrl</kbd>+<kbd>,</kbd> or the gear): look, Spaces (name, icon, colour), search engines, every shortcut (press the new key to change it), filter lists, allowed sites, deleting site data. Changes apply at once and are saved to `config.toml` with your comments kept.
+- **Settings page** (<kbd>Ctrl</kbd>+<kbd>,</kbd> or the gear): look, Spaces (name, icon, colour), search engines, every shortcut (press the new key to change it), passwords, site permissions, history, deleting browsing data. Changes apply at once and are saved to `config.toml` with your comments kept.
 - **Themes:** midnight, paper, graphite, aurora, ember, or your own CSS file.
 - **Colour each Space** like in Arc (<kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>C</kbd>).
 - **`user.css`** for any tweak. Save the file and the window updates instantly.
@@ -107,10 +106,10 @@ Open **Settings** with <kbd>Ctrl</kbd>+<kbd>,</kbd>. Everything there is also in
 
 | File | What's in it |
 |---|---|
-| `~/.config/stales/config.toml` | Search engine, theme, layout, every shortcut, filter lists, allowed sites. Written with explanations on first start. |
+| `~/.config/stales/config.toml` | Search engine, theme, layout, every shortcut, passwords, history. Written with explanations on first start. |
 | `~/.config/stales/user.css` | Your own style tweaks. Changes apply as soon as you save. |
 | `~/.config/stales/themes/*.css` | Your own themes. |
-| `~/.local/share/stales/` | Your tabs, cookies, cache, and the compiled blocker rules. |
+| `~/.local/share/stales/` | Your tabs, cookies, history and site data. |
 
 A taste of `config.toml`:
 
@@ -127,9 +126,6 @@ exclude = ["mail.google.com"]   # sites that keep their own single-key shortcuts
 
 [keys.bindings]
 close-tab = ["<Ctrl>w", "<Ctrl>q"]
-
-[blocker]
-allow = ["example.com"]
 ```
 
 ## Keyboard
@@ -154,7 +150,7 @@ The most useful keys; <kbd>F1</kbd> inside Stales shows them all, including any 
 
 ## Good to know
 
-- **No Chrome or Firefox extensions.** WebKit can't run them. The things most people install extensions for (ad blocking, dark pages, keyboard control) are built in.
+- **No Chrome or Firefox extensions.** WebKit can't run them. Keyboard control, dark pages and a password manager are built in. An ad blocker was built in once and is removed for now; it will come back later.
 - **Netflix, Spotify and other DRM video** usually won't play. WebKitGTK on Linux has no Widevine, which affects every WebKit browser on Linux.
 - **Passwords** are kept by your system keyring (GNOME Keyring, KWallet or KeePassXC), encrypted with your login, never in Stales' files. Stales wipes passwords from its memory after use, writes no crash dumps, and marks copied passwords as secret for clipboard managers. While you're logged in, programs running as you can ask the keyring for them; that's how the Linux keyring works for every app.
 - **The engine is WebKitGTK,** the engine of Safari and GNOME Web. It's light on memory and fits Linux well. A few sites tuned only for Chrome may misbehave.
@@ -171,7 +167,6 @@ Stales is about 5 000 lines of Rust, written to be readable. Every file starts w
 | `src/engine/` | The web engine behind an interface (WebKit today; Servo could be added later) |
 | `src/engine/keys.js` | Keyboard control inside pages, in an isolated world websites can't see |
 | `src/actions.rs` | Every action and its default keys, in one list |
-| `src/blocker.rs` | Downloads filter lists and turns them into WebKit content rules |
 | `src/theme.rs`, `src/theme/` | Themes, Space colours, user.css, live reload |
 | `src/session.rs` | Saving and restoring tabs |
 | `src/settings.rs`, `src/settings.html` | The settings page and first-start setup |
@@ -188,4 +183,4 @@ Contributions are welcome. Please run `cargo fmt`, `cargo clippy` and `cargo tes
 
 Stales is free software under the [GNU General Public License v3.0 or later](LICENSE). You may use, study, share and change it; versions you share must stay under the same licence.
 
-It builds on [WebKitGTK](https://webkitgtk.org), [GTK](https://gtk.org), the [gtk-rs](https://gtk-rs.org) bindings and Brave's [adblock-rust](https://github.com/brave/adblock-rust) (MPL-2.0). Filter lists are downloaded from [EasyList](https://easylist.to) and [uBlock Origin](https://github.com/uBlockOrigin/uAssets) at runtime under their own licences.
+It builds on [WebKitGTK](https://webkitgtk.org), [GTK](https://gtk.org), and the [gtk-rs](https://gtk-rs.org) bindings.

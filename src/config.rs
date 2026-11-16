@@ -20,7 +20,6 @@ const DEFAULT_CONFIG: &str = include_str!("default_config.toml");
 pub struct Config {
     pub search: SearchConfig,
     pub keys: KeysConfig,
-    pub blocker: BlockerConfig,
     pub appearance: AppearanceConfig,
     pub passwords: PasswordsConfig,
     pub web: WebConfig,
@@ -115,43 +114,6 @@ pub struct AppearanceConfig {
 impl Default for AppearanceConfig {
     fn default() -> Self {
         Self { theme: "midnight".into(), layout: "arc".into() }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
-pub struct BlockerConfig {
-    pub enabled: bool,
-    /// Filter list addresses (Adblock Plus / uBlock format).
-    pub lists: Vec<String>,
-    /// Download fresh lists after this many days.
-    pub update_days: u32,
-    /// Sites where nothing is blocked.
-    pub allow: Vec<String>,
-}
-
-impl Default for BlockerConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            lists: vec![
-                // Ads and trackers: the lists uBlock Origin uses by default.
-                "https://easylist.to/easylist/easylist.txt".into(),
-                "https://easylist.to/easylist/easyprivacy.txt".into(),
-                "https://ublockorigin.github.io/uAssets/filters/filters.txt".into(),
-                "https://ublockorigin.github.io/uAssets/filters/privacy.txt".into(),
-                "https://ublockorigin.github.io/uAssets/filters/quick-fixes.txt".into(),
-                "https://ublockorigin.github.io/uAssets/filters/unbreak.txt".into(),
-                "https://pgl.yoyo.org/adservers/serverlist.php?hostformat=adblockplus&showintro=0&mimetype=plaintext"
-                    .into(),
-                // Cookie banners and pop-ups (like "Sign in with Google" boxes).
-                "https://secure.fanboy.co.nz/fanboy-cookiemonster.txt".into(),
-                "https://ublockorigin.github.io/uAssets/filters/annoyances-cookies.txt".into(),
-                "https://ublockorigin.github.io/uAssets/filters/annoyances-others.txt".into(),
-            ],
-            update_days: 7,
-            allow: Vec::new(),
-        }
     }
 }
 
@@ -320,7 +282,7 @@ mod tests {
         assert!(new_text.contains("[keys.bindings]"));
 
         // A change that makes the file invalid is refused.
-        assert!(edit_text(text, |doc| set(doc, &["blocker"], "enabled", "yes please".into())).is_err());
+        assert!(edit_text(text, |doc| set(doc, &["history"], "enabled", "yes please".into())).is_err());
     }
 
     #[test]
@@ -328,8 +290,6 @@ mod tests {
         let config: Config = toml::from_str(DEFAULT_CONFIG).unwrap();
         assert_eq!(config.search().default_engine().name, "DuckDuckGo");
         assert!(config.keys.vim);
-        assert!(config.blocker.enabled);
-        assert_eq!(config.blocker.lists, BlockerConfig::default().lists);
     }
 
     #[test]

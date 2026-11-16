@@ -110,8 +110,6 @@ pub trait Page {
     /// Bring back a saved history and load its current page. Returns false if the
     /// data isn't valid (then nothing happens and the caller should just load the URL).
     fn restore_history(&self, data: &[u8]) -> bool;
-    /// Turn the ad blocker on or off for this tab (off for sites you allowed).
-    fn set_blocking(&self, on: bool);
     /// The tab was closed: free everything, including the page's background processes.
     fn close(&self);
 }
@@ -136,15 +134,6 @@ pub trait Engine {
     /// Serve Stales' own pages at `stales://name` (e.g. stales://welcome).
     /// `render` gets the name and returns the page's HTML, or `None` for "not found".
     fn set_internal_pages(&self, render: PageRenderer);
-    /// Load the ad blocker rules compiled last time. `done(false)` if there are none yet.
-    /// `parts`: how many rule lists were compiled last time.
-    fn load_saved_blocklist(&self, parts: usize, done: Box<dyn FnOnce(bool)>);
-    /// Compile new ad blocker rules (content-blocker JSON), keep them for next time,
-    /// and use them in every tab.
-    /// `parts`: one or more content-blocker JSON lists (WebKit limits the size of each).
-    fn install_blocklist(&self, parts: Vec<String>, done: Box<dyn FnOnce(Result<(), String>)>);
-    /// Stop blocking in every tab (the blocker was turned off in the settings).
-    fn clear_blocklist(&self);
     /// New single-key settings: used by new pages, and by open tabs after they reload.
     fn set_page_keys(&self, keys: &PageKeys);
     /// Downloads are reported here (all tabs share one handler).

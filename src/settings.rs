@@ -17,8 +17,8 @@ use gtk::prelude::*;
 
 use crate::config;
 use crate::state::TabId;
+use crate::theme;
 use crate::window::{self, Layout, Ui};
-use crate::{blocker, theme};
 
 pub const SETTINGS_URL: &str = "stales://settings";
 pub const SETUP_URL: &str = "stales://setup";
@@ -131,14 +131,6 @@ fn state(ui: &Ui) -> Value {
             "action": action, "description": description, "default": key,
             "key": page_keys.keys.iter().find(|(_, a)| a == action).map(|(k, _)| k.clone()),
         })).collect::<Vec<_>>(),
-        "blocker": {
-            "enabled": config.blocker.enabled,
-            "lists": config.blocker.lists,
-            "status": ui.blocker_status.borrow().describe(),
-            "allowed": config.blocker.allow.iter().map(|s| json!({"site": s, "from": "config"}))
-                .chain(saved.blocker_allow.iter().map(|s| json!({"site": s, "from": "shield"})))
-                .collect::<Vec<_>>(),
-        },
         "passwords": {
             "enabled": config.passwords.enabled,
             "separate_keyring": config.passwords.separate_keyring,
@@ -287,40 +279,6 @@ pub fn handle(ui: &Rc<Ui>, id: TabId, message: &str) {
             if save(ui, |doc| write_page_keys(doc, &map)) {
                 reload_page_keys(ui);
                 note = Some("Open tabs use this after you reload them".into());
-            }
-        }
-        "set-blocker" => {
-            let on = flag("on");
-            if save(ui, |doc| config::set(doc, &["blocker"], "enabled", on.into())) {
-                if on {
-                    blocker::start(ui);
-                } else {
-                    ui.engine.clear_blocklist();
-                    blocker::start(ui); // shows "off"
-                }
-            }
-        }
-        "set-lists" => {
-            let lists = list("lists");
-            if save(ui, |doc| config::set(doc, &["blocker"], "lists", config::string_list(&lists))) {
-                blocker::update(ui);
-                note = Some("Downloading the new lists…".into());
-            }
-        }
-        "update-lists" => {
-            blocker::update(ui);
-            note = Some("Downloading the lists…".into());
-        }
-        "remove-allowed" => {
-            let site = text("site");
-            if text("from") == "config" {
-                let mut allow = ui.config.borrow().blocker.allow.clone();
-                allow.retain(|s| *s != site);
-                save(ui, |doc| config::set(doc, &["blocker"], "allow", config::string_list(&allow)));
-            } else {
-                let mut saved = ui.saved.borrow_mut();
-                saved.blocker_allow.retain(|s| *s != site);
-                crate::saved::store(&saved);
             }
         }
         "get-logins" => {

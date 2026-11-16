@@ -14,7 +14,7 @@ use crate::config::KeysConfig;
 use crate::engine::PageKeys;
 use crate::saved::{SIDEBAR_COMPACT, SIDEBAR_MIN};
 use crate::window::{self, Ui};
-use crate::{blocker, find_bar, help, theme};
+use crate::{find_bar, help, theme};
 
 pub struct Action {
     pub name: &'static str,
@@ -100,7 +100,6 @@ pub const ACTIONS: &[Action] = &[
     action("zoom-in", "Page", "Zoom in", &["<Ctrl>plus", "<Ctrl>equal"], |ui| zoom(ui, Some(0.1))),
     action("zoom-out", "Page", "Zoom out", &["<Ctrl>minus"], |ui| zoom(ui, Some(-0.1))),
     action("zoom-reset", "Page", "Reset zoom", &["<Ctrl>0"], |ui| zoom(ui, None)),
-    action("toggle-blocker", "Page", "Ad blocker off / on for this site", &["<Ctrl><Shift>b"], blocker::toggle_site),
     action("inspector", "Page", "Developer tools", &["<Ctrl><Shift>i", "F12"], |ui| {
         with_page(ui, |p| p.show_inspector())
     }),

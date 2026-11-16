@@ -13,7 +13,7 @@
 @define-color st_hover     rgba(255, 255, 255, 0.05);
 @define-color st_active    rgba(255, 255, 255, 0.10);
 @define-color st_border    rgba(255, 255, 255, 0.06);
-@define-color st_accent    #e4e4e7;  /* loading bar, shield, active Space */
+@define-color st_accent    #e4e4e7;  /* loading bar, active Space, buttons */
 @define-color st_scrim     @st_shadow;  /* darkens the page behind popups */
 @define-color st_shadow    rgba(0, 0, 0, 0.5);
 
@@ -75,10 +75,6 @@ window.stales {
   color: @st_fg;
 }
 
-/* The shield is a little brighter while it is blocking. */
-.st-shield.on {
-  color: @st_accent;
-}
 
 .st-urlbar {
   background: @st_hover;

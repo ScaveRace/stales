@@ -44,19 +44,9 @@ fn welcome(config: &Config) -> String {
     } else {
         "<p class=\"muted\">Single-key commands are turned off (<code>vim = false</code> in the settings).</p>".into()
     };
-    let blocker = if config.blocker.enabled {
-        format!(
-            "<p>Ads and trackers are blocked with the same lists uBlock Origin uses. \
-             The shield at the top of the sidebar (or {}) turns it off for one site.</p>",
-            key(config, "toggle-blocker")
-        )
-    } else {
-        "<p class=\"muted\">The ad blocker is turned off in the settings.</p>".into()
-    };
 
     let mut html = include_str!("welcome.html")
         .replace("{vim}", &vim)
-        .replace("{blocker}", &blocker)
         .replace("{engine}", &escape(&config.search().default_engine().name))
         .replace("{config_url}", &format!("file://{}", escape(&path.to_string_lossy())))
         .replace("{config_path}", &escape(&path.to_string_lossy()));
@@ -113,7 +103,7 @@ mod tests {
         let html = render("welcome", &Config::default()).unwrap();
         assert!(!html.contains("{key:"), "unfilled key placeholder");
         assert!(!html.contains("{page:"), "unfilled page placeholder");
-        for placeholder in ["{vim}", "{blocker}", "{engine}", "{config_url}", "{config_path}"] {
+        for placeholder in ["{vim}", "{engine}", "{config_url}", "{config_path}"] {
             assert!(!html.contains(placeholder), "{placeholder} not filled");
         }
         assert!(html.contains("DuckDuckGo"));

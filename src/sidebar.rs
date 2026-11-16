@@ -15,7 +15,6 @@ use std::rc::Rc;
 use gtk::pango::EllipsizeMode;
 use gtk::prelude::*;
 
-use crate::blocker;
 use crate::command_bar::{self, Mode};
 use crate::state::{Selected, Tab};
 use crate::window::{self, Ui};
@@ -32,8 +31,6 @@ pub struct Sidebar {
     pub back: gtk::Button,
     pub forward: gtk::Button,
     pub reload: gtk::Button,
-    /// Ad blocker on/off for the current site.
-    pub shield: gtk::Button,
     pub url_button: gtk::Button,
     pub url_label: gtk::Label,
     pub space_label: gtk::Label,
@@ -85,9 +82,6 @@ pub fn build() -> Sidebar {
     let back = icon_button("go-previous-symbolic", "Back (Alt+←)");
     let forward = icon_button("go-next-symbolic", "Forward (Alt+→)");
     let reload = icon_button("view-refresh-symbolic", "Reload (Ctrl+R)");
-    let shield = icon_button("security-high-symbolic", "Ad blocker (Ctrl+Shift+B)");
-    shield.add_css_class("st-shield");
-    nav.append(&shield);
     nav.append(&back);
     nav.append(&forward);
     nav.append(&reload);
@@ -168,7 +162,6 @@ pub fn build() -> Sidebar {
         back,
         forward,
         reload,
-        shield,
         url_button,
         url_label,
         space_label,
@@ -223,8 +216,6 @@ pub fn connect(ui: &Rc<Ui>) {
     });
     let u = ui.clone();
     sb.reload.connect_clicked(move |_| window::reload_or_stop(&u));
-    let u = ui.clone();
-    sb.shield.connect_clicked(move |_| blocker::toggle_site(&u));
 
     let u = ui.clone();
     sb.url_button.connect_clicked(move |_| command_bar::open(&u, Mode::EditCurrent));
@@ -261,8 +252,6 @@ pub fn refresh(ui: &Rc<Ui>) {
         Some(tab) => sb.url_label.set_label(&tab.display_url()),
         None => sb.url_label.set_label("Search or enter address"),
     }
-
-    blocker::show_shield(ui, &sb.shield, state.active_tab().map(|t| t.url.as_str()));
 
     // Pinned tiles (drag a tab here to pin it; drag a tile onto another to reorder)
     let settings = ui.config.borrow().sidebar.clone();

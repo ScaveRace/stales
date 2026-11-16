@@ -16,7 +16,6 @@ use std::rc::Rc;
 use gtk::pango::EllipsizeMode;
 use gtk::prelude::*;
 
-use crate::blocker;
 use crate::command_bar::{self, Mode};
 use crate::sidebar::{favicon, icon_button};
 use crate::state::Selected;
@@ -30,7 +29,6 @@ pub struct TopBar {
     pub back: gtk::Button,
     pub forward: gtk::Button,
     pub reload: gtk::Button,
-    pub shield: gtk::Button,
     settings: gtk::Button,
     url_button: gtk::Button,
     url_label: gtk::Label,
@@ -71,7 +69,7 @@ pub fn build() -> TopBar {
     let handle = gtk::WindowHandle::new();
     handle.set_child(Some(&tab_row));
 
-    // Row 2: navigation, address, shield.
+    // Row 2: navigation, address, settings.
     let back = icon_button("go-previous-symbolic", "Back (Alt+←)");
     let forward = icon_button("go-next-symbolic", "Forward (Alt+→)");
     let reload = icon_button("view-refresh-symbolic", "Reload (Ctrl+R)");
@@ -85,8 +83,6 @@ pub fn build() -> TopBar {
     url_button.set_hexpand(true);
     url_button.set_child(Some(&url_label));
     url_button.set_tooltip_text(Some("Ctrl+L"));
-    let shield = icon_button("security-high-symbolic", "Ad blocker (Ctrl+Shift+B)");
-    shield.add_css_class("st-shield");
     let settings = icon_button("emblem-system-symbolic", "Settings (Ctrl+,)");
     let toolbar = gtk::Box::new(gtk::Orientation::Horizontal, 4);
     toolbar.add_css_class("st-toolbar");
@@ -95,7 +91,6 @@ pub fn build() -> TopBar {
         forward.upcast_ref(),
         reload.upcast_ref(),
         url_button.upcast_ref(),
-        shield.upcast_ref(),
         settings.upcast_ref(),
     ] {
         toolbar.append(widget);
@@ -106,7 +101,7 @@ pub fn build() -> TopBar {
     root.set_hexpand(true);
     root.append(&handle);
     root.append(&toolbar);
-    TopBar { root, tabs, scroller, spaces, back, forward, reload, shield, settings, url_button, url_label, new_tab }
+    TopBar { root, tabs, scroller, spaces, back, forward, reload, settings, url_button, url_label, new_tab }
 }
 
 pub fn connect(ui: &Rc<Ui>) {
@@ -125,8 +120,6 @@ pub fn connect(ui: &Rc<Ui>) {
     });
     let u = ui.clone();
     bar.reload.connect_clicked(move |_| window::reload_or_stop(&u));
-    let u = ui.clone();
-    bar.shield.connect_clicked(move |_| blocker::toggle_site(&u));
     let u = ui.clone();
     bar.settings.connect_clicked(move |_| crate::settings::open(&u));
     let u = ui.clone();
@@ -230,7 +223,6 @@ pub fn refresh(ui: &Rc<Ui>) {
         Some(tab) => bar.url_label.set_label(&tab.display_url()),
         None => bar.url_label.set_label("Search or enter address"),
     }
-    blocker::show_shield(ui, &bar.shield, state.active_tab().map(|t| t.url.as_str()));
 
     clear(&bar.tabs);
     let mut active_widget = None;
