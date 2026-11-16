@@ -139,7 +139,11 @@ fn state(ui: &Ui) -> Value {
                 .chain(saved.blocker_allow.iter().map(|s| json!({"site": s, "from": "shield"})))
                 .collect::<Vec<_>>(),
         },
-        "passwords": {"enabled": config.passwords.enabled},
+        "passwords": {
+            "enabled": config.passwords.enabled,
+            "separate_keyring": config.passwords.separate_keyring,
+            "lock_minutes": config.passwords.lock_minutes,
+        },
         "history": {"enabled": config.history.enabled, "keep_days": config.history.keep_days, "count": ui.history.borrow().len()},
         "site_permissions": saved.site_permissions.iter().map(|p| json!({
             "origin": p.origin, "kind": p.kind, "allow": p.allow, "what": crate::permissions::describe(p.kind),
@@ -320,8 +324,55 @@ pub fn handle(ui: &Rc<Ui>, id: TabId, message: &str) {
             }
         }
         "get-logins" => {
-            // The list comes from the keyring (it may ask to unlock it first).
-            crate::passwords::send_list(ui, id);
+            // The list comes from the keyring; with "unlock" a locked one asks first.
+            crate::passwords::send_list(ui, id, flag("unlock"));
+            return;
+        }
+        "set-keyring" => {
+            let separate = flag("separate");
+            let minutes = msg.get("minutes").and_then(Value::as_i64).unwrap_or(5).clamp(1, 1440);
+            let changed = ui.config.borrow().passwords.separate_keyring != separate;
+            if save(ui, |doc| {
+                config::set(doc, &["passwords"], "separate_keyring", separate.into());
+                config::set(doc, &["passwords"], "lock_minutes", minutes.into());
+            }) && changed
+            {
+                // Move the logins over (your system may ask for keyring passwords).
+                let weak = Rc::downgrade(ui);
+                gtk::glib::spawn_future_local(async move {
+                    let result = crate::passwords::move_logins(separate).await;
+                    let Some(ui) = weak.upgrade() else { return };
+                    match result {
+                        Ok(n) => {
+                            let place = if separate { "the Stales keyring" } else { "your login keyring" };
+                            window::toast(&ui, &format!("{n} logins moved to {place}"));
+                            crate::passwords::lock_later(&ui);
+                        }
+                        Err(e) => {
+                            eprintln!("stales: moving logins failed: {e}");
+                            window::toast(&ui, "Could not move the logins (see the terminal)");
+                        }
+                    }
+                    crate::passwords::send_list(&ui, id, false);
+                });
+                note = Some("Moving your logins…".into());
+            }
+        }
+        "lock-now" => {
+            let weak = Rc::downgrade(ui);
+            gtk::glib::spawn_future_local(async move {
+                let result = crate::passwords::lock_vault().await;
+                let Some(ui) = weak.upgrade() else { return };
+                window::toast(
+                    &ui,
+                    match result {
+                        Ok(true) => "Stales keyring locked",
+                        Ok(false) => "There is no Stales keyring yet",
+                        Err(_) => "Could not lock the keyring",
+                    },
+                );
+                crate::passwords::send_list(&ui, id, false);
+            });
             return;
         }
         "copy-password" => {
@@ -332,7 +383,7 @@ pub fn handle(ui: &Rc<Ui>, id: TabId, message: &str) {
             let weak = Rc::downgrade(ui);
             crate::passwords::delete(&text("origin"), &text("username"), move || {
                 if let Some(ui) = weak.upgrade() {
-                    crate::passwords::send_list(&ui, id);
+                    crate::passwords::send_list(&ui, id, false);
                     window::toast(&ui, "Login deleted");
                 }
             });
@@ -342,7 +393,7 @@ pub fn handle(ui: &Rc<Ui>, id: TabId, message: &str) {
             let site = text("site");
             ui.saved.borrow_mut().password_never.retain(|s| *s != site);
             crate::saved::store(&ui.saved.borrow());
-            crate::passwords::send_list(ui, id);
+            crate::passwords::send_list(ui, id, false);
             return;
         }
         "set-passwords" => {

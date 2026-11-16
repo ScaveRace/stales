@@ -71,6 +71,12 @@ exclude = ["mail.google.com", "docs.google.com"]
 # (GNOME Keyring, KWallet, or KeePassXC), encrypted with your login, never in Stales' files.
 # Fill a login with Ctrl+Shift+L or by picking it under the field.
 enabled = true
+# Keep logins in a separate keyring that Stales locks when you're not using it.
+# Your normal login keyring stays unlocked while you're logged in, so any program
+# running as you could read passwords from it; a locked keyring can't be read.
+# Unlocking asks for that keyring's own password (your system's dialog).
+separate_keyring = false
+lock_minutes = 5
 
 [history]
 # Remember the pages you visit (see them with Ctrl+H). Stored only on this computer,

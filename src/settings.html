@@ -310,6 +310,8 @@ function settingsPage() {
     <section id="passwords">
       <h2>Passwords</h2>
       <div class="row"><span class="grow"><b>Offer to save and fill logins</b><br><span class="muted">Stored in your system keyring (GNOME Keyring, KWallet or KeePassXC), encrypted with your login. Filled only on the same site, only when you pick it or press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd>.</span></span>${toggle("pw-enabled", S.passwords.enabled, "Password manager")}</div>
+      <div class="row"><span class="grow"><b>Keep logins in a separate, locked keyring</b><br><span class="muted">Your login keyring stays unlocked while you're logged in, so any program running as you could read it. With this on, logins live in their own keyring ("Stales passwords", with its own password) that locks itself when not in use. While locked nothing can read it; filling a login asks for its password.</span></span>${toggle("pw-separate", S.passwords.separate_keyring, "Separate locked keyring")}</div>
+      ${S.passwords.separate_keyring ? `<div class="row"><span class="grow">Lock it again after <span class="muted">(minutes)</span></span><input type="number" id="pw-minutes" min="1" max="1440" value="${S.passwords.lock_minutes}" style="width:90px"><button class="small" id="pw-lock">Lock now</button></div>` : ""}
       <h3>Saved logins</h3>
       <div id="logins">${loginsHtml()}</div>
       <h3>Never save on</h3>
@@ -321,7 +323,7 @@ function settingsPage() {
         <li><b>Filled only by you</b> (picking it or <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd>), only on exactly the same site, only over https. Websites can't trigger filling or see other sites' logins.</li>
         <li><b>In memory only briefly:</b> Stales wipes each copy right after saving or filling and writes no crash files; the system already stops other programs from reading its memory.</li>
         <li><b>Copied passwords</b> are marked secret for clipboard history tools and cleared from the clipboard after 30 seconds.</li>
-        <li><b>What remains:</b> while you are logged in, your keyring is unlocked, and programs running as you can ask it for passwords (true for every Linux browser and app using the keyring). A site sees a password once it is in its field, like in any browser. To be stricter, put Stales' logins in a separate keyring that locks on its own, or use KeePassXC as your Secret Service.</li>
+        <li><b>What remains:</b> with the normal setting your login keyring is unlocked while you're logged in, and programs running as you can ask it for passwords (true for every Linux app using it). Turn on the separate locked keyring above to close that gap; then passwords are only readable for a few minutes after you used one. A site sees a password once it is in its field, like in any browser.</li>
       </ul>
     </section>
 
@@ -384,6 +386,7 @@ window.stalesPasswords = (data) => {
 };
 function loginsHtml() {
   if (!LOGINS) return '<p class="muted">Reading your keyring…</p>';
+  if (LOGINS.locked) return '<p class="muted">🔒 The Stales keyring is locked. <button class="small" id="pw-unlock">Unlock to show logins</button></p>';
   if (!LOGINS.logins.length) return '<p class="muted">None yet. Log in on a site and choose <b>Save</b> in the bar that appears.</p>';
   return LOGINS.logins.map((l) => `<div class="row">
       <span class="grow">${esc(l.origin.replace(/^https?:\/\//, ""))}<br><span class="muted">${esc(l.username || "(no username)")}</span></span>
@@ -396,6 +399,7 @@ function neverHtml() {
   return LOGINS.never.map((s) => `<div class="row"><span class="grow">${esc(s)}</span><button class="small" data-never="${esc(s)}">Remove</button></div>`).join("");
 }
 function wireLogins() {
+  on("pw-unlock", "click", () => send("get-logins", { unlock: true }));
   document.querySelectorAll("[data-copy]").forEach((b) => b.addEventListener("click", () => send("copy-password", { origin: b.dataset.copy, username: b.dataset.user })));
   document.querySelectorAll("[data-delete]").forEach((b) => b.addEventListener("click", () => {
     if (confirm(`Delete the login for ${b.dataset.delete} (${b.dataset.user})?`)) send("delete-login", { origin: b.dataset.delete, username: b.dataset.user });
@@ -467,6 +471,18 @@ function wireSettings() {
 
   // Passwords
   on("pw-enabled", "change", (e) => send("set-passwords", { on: e.target.checked }));
+  const keyring = () => send("set-keyring", {
+    separate: document.getElementById("pw-separate").checked,
+    minutes: Number(document.getElementById("pw-minutes")?.value || S.passwords.lock_minutes),
+  });
+  on("pw-separate", "change", (e) => {
+    const msg = e.target.checked
+      ? "Move your saved logins into a separate keyring that locks itself? Your system will ask you to choose a password for it."
+      : "Move your saved logins back into your login keyring (unlocked while you're logged in)?";
+    if (confirm(msg)) keyring(); else e.target.checked = !e.target.checked;
+  });
+  on("pw-minutes", "change", keyring);
+  on("pw-lock", "click", () => send("lock-now"));
   wireLogins();
 
   // Privacy

@@ -18,7 +18,10 @@ use std::time::Duration;
 use gtk::glib;
 use gtk::prelude::*;
 use libsecret::prelude::*;
-use libsecret::{Schema, SchemaAttributeType, SchemaFlags, SearchFlags};
+use libsecret::{
+    Collection, CollectionCreateFlags, CollectionFlags, Schema, SchemaAttributeType, SchemaFlags, SearchFlags,
+    ServiceFlags,
+};
 use serde_json::json;
 
 use crate::state::TabId;
@@ -74,47 +77,35 @@ pub fn origin_of(url: &str) -> Option<String> {
 
 // ---------- The keyring ----------
 
-/// Usernames saved for a site.
-pub fn accounts(origin: &str, done: impl FnOnce(Vec<String>) + 'static) {
+/// Usernames saved for a site. With `unlock`, a locked keyring asks for its password;
+/// without, locked logins are simply not found.
+pub fn accounts(origin: &str, unlock: bool, done: impl FnOnce(Vec<String>) + 'static) {
     let attributes = HashMap::from([("origin", origin)]);
-    libsecret::password_search(
-        Some(&schema()),
-        attributes,
-        SearchFlags::ALL | SearchFlags::UNLOCK,
-        None::<&gtk::gio::Cancellable>,
-        move |result| {
-            let mut names: Vec<String> = result
-                .unwrap_or_default()
-                .iter()
-                .filter_map(|item| item.attributes().get("username").cloned())
-                .collect();
-            names.sort();
-            names.dedup();
-            done(names);
-        },
-    );
+    let flags = if unlock { SearchFlags::ALL | SearchFlags::UNLOCK } else { SearchFlags::ALL };
+    libsecret::password_search(Some(&schema()), attributes, flags, None::<&gtk::gio::Cancellable>, move |result| {
+        let mut names: Vec<String> =
+            result.unwrap_or_default().iter().filter_map(|item| item.attributes().get("username").cloned()).collect();
+        names.sort();
+        names.dedup();
+        done(names);
+    });
 }
 
 /// Every saved login, for the settings page: (site, username).
-pub fn all(done: impl FnOnce(Vec<(String, String)>) + 'static) {
-    libsecret::password_search(
-        Some(&schema()),
-        HashMap::new(),
-        SearchFlags::ALL | SearchFlags::UNLOCK,
-        None::<&gtk::gio::Cancellable>,
-        move |result| {
-            let mut logins: Vec<(String, String)> = result
-                .unwrap_or_default()
-                .iter()
-                .filter_map(|item| {
-                    let attributes = item.attributes();
-                    Some((attributes.get("origin")?.clone(), attributes.get("username")?.clone()))
-                })
-                .collect();
-            logins.sort();
-            done(logins);
-        },
-    );
+pub fn all(unlock: bool, done: impl FnOnce(Vec<(String, String)>) + 'static) {
+    let flags = if unlock { SearchFlags::ALL | SearchFlags::UNLOCK } else { SearchFlags::ALL };
+    libsecret::password_search(Some(&schema()), HashMap::new(), flags, None::<&gtk::gio::Cancellable>, move |result| {
+        let mut logins: Vec<(String, String)> = result
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|item| {
+                let attributes = item.attributes();
+                Some((attributes.get("origin")?.clone(), attributes.get("username")?.clone()))
+            })
+            .collect();
+        logins.sort();
+        done(logins);
+    });
 }
 
 pub fn password(origin: &str, username: &str, done: impl FnOnce(Option<Secret>) + 'static) {
@@ -124,13 +115,18 @@ pub fn password(origin: &str, username: &str, done: impl FnOnce(Option<Secret>) 
     });
 }
 
-fn store(login: &PendingLogin, done: impl FnOnce(Result<(), String>) + 'static) {
+fn label_for(origin: &str, username: &str) -> String {
+    format!("Stales: {} ({username})", origin.split("://").nth(1).unwrap_or(origin))
+}
+
+/// Save a login: in Stales' own keyring (`separate`), or in your default keyring.
+fn store(login: &PendingLogin, separate: bool, done: impl FnOnce(Result<(), String>) + 'static) {
     let attributes = HashMap::from([("origin", login.origin.as_str()), ("username", login.username.as_str())]);
-    let label = format!("Stales: {} ({})", login.origin.split("://").nth(1).unwrap_or(&login.origin), login.username);
+    let label = label_for(&login.origin, &login.username);
     libsecret::password_store(
         Some(&schema()),
         attributes,
-        None, // the default keyring
+        separate.then_some(VAULT_ALIAS),
         &label,
         &login.password,
         None::<&gtk::gio::Cancellable>,
@@ -161,7 +157,9 @@ pub fn handle(ui: &Rc<Ui>, id: TabId, message: &str) {
         // A page with a login form loaded: tell it which accounts exist (names only).
         "logins-wanted" => {
             let weak = Rc::downgrade(ui);
-            accounts(&origin, move |names| {
+            // With the separate keyring locked: no suggestions, and no password dialog
+            // on every login page. Ctrl+Shift+L unlocks it when you actually want a login.
+            accounts(&origin, !separate(ui), move |names| {
                 if let Some(ui) = weak.upgrade()
                     && !names.is_empty()
                 {
@@ -175,6 +173,12 @@ pub fn handle(ui: &Rc<Ui>, id: TabId, message: &str) {
         "submitted" => {
             let (username, password) = (msg.username, msg.password);
             if password.is_empty() || ui.saved.borrow().password_never.contains(&origin) {
+                return;
+            }
+            if separate(ui) {
+                // Checking whether it's saved already would ask to unlock the keyring
+                // after every login; just offer to save (saving the same again is harmless).
+                ask_to_save(ui, PendingLogin { origin, username, password, update: false });
                 return;
             }
             let weak = Rc::downgrade(ui);
@@ -202,6 +206,7 @@ fn fill(ui: &Rc<Ui>, id: TabId, origin: &str, username: &str) {
     let user = username.to_string();
     password(origin, username, move |found| {
         let (Some(ui), Some(password)) = (weak.upgrade(), found) else { return };
+        lock_later(&ui);
         let quoted = Secret::new(serde_json::to_string(password.as_str()).unwrap_or_default());
         let script = Secret::new(format!("window.__stalesFill && window.__stalesFill({}, {})", json!(user), *quoted));
         send_to_page(&ui, id, &script);
@@ -221,7 +226,7 @@ pub fn fill_shortcut(ui: &Rc<Ui>) {
     }
     let weak = Rc::downgrade(ui);
     let site = origin.clone();
-    accounts(&site, move |names| {
+    accounts(&site, true, move |names| {
         let Some(ui) = weak.upgrade() else { return };
         match names.as_slice() {
             [] => window::toast(&ui, "No saved login for this site"),
@@ -272,16 +277,28 @@ pub fn save_pending(ui: &Rc<Ui>) {
     let Some(login) = ui.pending_login.take() else { return };
     ui.password_bar.root.set_visible(false);
     let weak = Rc::downgrade(ui);
-    store(&login, move |result| {
-        if let Some(ui) = weak.upgrade() {
-            match result {
-                Ok(()) => window::toast(&ui, "Login saved in your keyring"),
-                Err(e) => {
-                    eprintln!("stales: could not save the login: {e}");
-                    window::toast(&ui, "Could not save: is a keyring (GNOME Keyring, KWallet, KeePassXC) running?");
+    let separate = separate(ui);
+    gtk::glib::spawn_future_local(async move {
+        // The separate keyring is made the first time (your system asks for its password).
+        if separate && let Err(e) = vault(true).await {
+            eprintln!("stales: could not open the Stales keyring: {e}");
+            if let Some(ui) = weak.upgrade() {
+                window::toast(&ui, "Could not open the Stales keyring");
+            }
+            return;
+        }
+        store(&login, separate, move |result| {
+            if let Some(ui) = weak.upgrade() {
+                lock_later(&ui);
+                match result {
+                    Ok(()) => window::toast(&ui, "Login saved in your keyring"),
+                    Err(e) => {
+                        eprintln!("stales: could not save the login: {e}");
+                        window::toast(&ui, "Could not save: is a keyring (GNOME Keyring, KWallet, KeePassXC) running?");
+                    }
                 }
             }
-        }
+        });
     });
 }
 
@@ -352,20 +369,30 @@ pub fn connect_bar(ui: &Rc<Ui>) {
 
 // ---------- The settings page ----------
 
-/// Send the list of saved logins to the settings page in tab `id`.
-pub fn send_list(ui: &Rc<Ui>, id: TabId) {
+/// Send the list of saved logins to the settings page in tab `id`. With `unlock`, a
+/// locked Stales keyring asks for its password first.
+pub fn send_list(ui: &Rc<Ui>, id: TabId, unlock: bool) {
     let weak = Rc::downgrade(ui);
-    all(move |logins| {
-        let Some(ui) = weak.upgrade() else { return };
-        let never = ui.saved.borrow().password_never.clone();
-        let data = json!({
-            "logins": logins.iter().map(|(o, u)| json!({"origin": o, "username": u})).collect::<Vec<_>>(),
-            "never": never,
+    let separate = separate(ui);
+    gtk::glib::spawn_future_local(async move {
+        let locked = separate && vault(false).await.ok().flatten().is_some_and(|c| c.is_locked());
+        let unlock = unlock && locked;
+        all(unlock, move |logins| {
+            let Some(ui) = weak.upgrade() else { return };
+            if unlock {
+                lock_later(&ui);
+            }
+            let never = ui.saved.borrow().password_never.clone();
+            let data = json!({
+                "logins": logins.iter().map(|(o, u)| json!({"origin": o, "username": u})).collect::<Vec<_>>(),
+                "never": never,
+                "locked": locked && !unlock,
+            });
+            let page = ui.pages.borrow().get(&id).cloned();
+            if let Some(page) = page {
+                page.run_script(&format!("window.stalesPasswords && window.stalesPasswords({data})"));
+            }
         });
-        let page = ui.pages.borrow().get(&id).cloned();
-        if let Some(page) = page {
-            page.run_script(&format!("window.stalesPasswords && window.stalesPasswords({data})"));
-        }
     });
 }
 
@@ -374,6 +401,7 @@ pub fn copy(ui: &Rc<Ui>, origin: &str, username: &str) {
     let weak = Rc::downgrade(ui);
     password(origin, username, move |found| {
         let (Some(ui), Some(password)) = (weak.upgrade(), found) else { return };
+        lock_later(&ui);
         let clipboard = ui.window.clipboard();
         // Marked as secret, so clipboard history tools (cliphist, Klipper, …) don't keep it.
         let text = gtk::glib::Bytes::from(password.as_bytes());
@@ -398,6 +426,117 @@ pub fn copy(ui: &Rc<Ui>, origin: &str, username: &str) {
             });
         });
     });
+}
+
+// ---------- Stales' own keyring, locked when not in use ----------
+//
+// Your login keyring is unlocked as long as you're logged in, so any program running
+// as you can read from it. With `separate_keyring`, logins live in a keyring of their
+// own ("Stales passwords", with its own password) that Stales locks a few minutes after
+// the last use. While locked, nobody can read it; unlocking shows your system's dialog.
+
+/// The keyring's alias (its short name for programs).
+const VAULT_ALIAS: &str = "stales";
+
+thread_local! {
+    /// Counts uses, so only the timer after the latest use locks the keyring.
+    static LOCK_ROUND: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+fn separate(ui: &Ui) -> bool {
+    ui.config.borrow().passwords.separate_keyring
+}
+
+async fn service() -> Result<libsecret::Service, String> {
+    libsecret::Service::get_future(ServiceFlags::OPEN_SESSION | ServiceFlags::LOAD_COLLECTIONS)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Stales' own keyring. With `create`, it's made if it doesn't exist yet (your system
+/// then asks you to choose a password for it).
+async fn vault(create: bool) -> Result<Option<Collection>, String> {
+    let service = service().await?;
+    let found = Collection::for_alias_future(Some(&service), VAULT_ALIAS, CollectionFlags::NONE)
+        .await
+        .map_err(|e| e.to_string())?;
+    if found.is_some() || !create {
+        return Ok(found);
+    }
+    Collection::create_future(Some(&service), "Stales passwords", Some(VAULT_ALIAS), CollectionCreateFlags::NONE)
+        .await
+        .map(Some)
+        .map_err(|e| e.to_string())
+}
+
+/// Lock Stales' keyring now. Ok(false): there is none.
+pub async fn lock_vault() -> Result<bool, String> {
+    use libsecret::prelude::ServiceExtManual;
+    let service = service().await?;
+    let Some(vault) = vault(false).await? else { return Ok(false) };
+    service.lock_future(&[vault.upcast()]).await.map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+/// After using the separate keyring: lock it again `lock_minutes` after this use.
+pub fn lock_later(ui: &Rc<Ui>) {
+    if !separate(ui) {
+        return;
+    }
+    let minutes = ui.config.borrow().passwords.lock_minutes.clamp(1, 24 * 60);
+    let round = LOCK_ROUND.with(|r| {
+        r.set(r.get() + 1);
+        r.get()
+    });
+    glib::timeout_add_seconds_local_once(minutes * 60, move || {
+        if LOCK_ROUND.with(|r| r.get()) == round {
+            glib::spawn_future_local(async {
+                if let Err(e) = lock_vault().await {
+                    eprintln!("stales: could not lock the Stales keyring: {e}");
+                }
+            });
+        }
+    });
+}
+
+/// Move all of Stales' logins into its own keyring (`to_vault`) or back into your
+/// default keyring. Returns how many moved. Unlocking may ask for passwords.
+pub async fn move_logins(to_vault: bool) -> Result<usize, String> {
+    use gtk::gio::prelude::DBusProxyExt;
+    let vault = vault(to_vault).await?;
+    let vault_path = vault.as_ref().map(|c| c.object_path().to_string());
+    let found = libsecret::password_search_future(
+        Some(&schema()),
+        HashMap::new(),
+        SearchFlags::ALL | SearchFlags::UNLOCK | SearchFlags::LOAD_SECRETS,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    let mut moved = 0;
+    for retrievable in found {
+        let Some(item) = retrievable.downcast_ref::<libsecret::Item>() else { continue };
+        let in_vault = vault_path.as_ref().is_some_and(|p| item.object_path().starts_with(&format!("{p}/")));
+        if in_vault == to_vault {
+            continue;
+        }
+        let Some(secret) = item.secret().and_then(|v| v.text()).map(|t| Secret::new(t.to_string())) else { continue };
+        let attributes = item.attributes();
+        let (Some(origin), Some(username)) = (attributes.get("origin"), attributes.get("username")) else { continue };
+        let map = HashMap::from([("origin", origin.as_str()), ("username", username.as_str())]);
+        libsecret::password_store_future(
+            Some(&schema()),
+            map,
+            to_vault.then_some(VAULT_ALIAS),
+            &label_for(origin, username),
+            &secret,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+        // Only delete the old copy once the new one is safely stored.
+        item.delete_future().await.map_err(|e| e.to_string())?;
+        moved += 1;
+    }
+    Ok(moved)
 }
 
 #[cfg(test)]

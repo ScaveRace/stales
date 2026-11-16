@@ -90,11 +90,16 @@ pub struct WebConfig {
 pub struct PasswordsConfig {
     /// Offer to save logins and fill them in (stored in your system keyring).
     pub enabled: bool,
+    /// Keep logins in a separate keyring ("Stales passwords") that Stales locks when
+    /// not in use, instead of your login keyring (unlocked while you're logged in).
+    pub separate_keyring: bool,
+    /// Lock that keyring this many minutes after the last use.
+    pub lock_minutes: u32,
 }
 
 impl Default for PasswordsConfig {
     fn default() -> Self {
-        Self { enabled: true }
+        Self { enabled: true, separate_keyring: false, lock_minutes: 5 }
     }
 }
 
