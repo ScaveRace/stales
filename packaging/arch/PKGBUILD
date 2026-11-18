@@ -3,7 +3,7 @@
 # Builds the latest Stales from git. To install locally:
 #   cd packaging/arch && makepkg -si
 pkgname=stales-git
-pkgver=0.1.0
+pkgver=0.1.1
 pkgrel=1
 pkgdesc="Fast, keyboard-driven web browser with an Arc-style sidebar"
 arch=('x86_64' 'aarch64')

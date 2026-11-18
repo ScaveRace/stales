@@ -1,7 +1,16 @@
 # Changelog
 
-## Unreleased
+## 0.1.1 (2026-11-18)
 
+- Website permission prompts (location, camera, microphone, notifications, screen)
+  in a bar under the page; answers are remembered and listed in Settings.
+- Downloads ask where to save (or go straight to your Downloads folder).
+- Tab folders in the sidebar, and dragging pinned tiles and tabs to reorder them.
+- History (Ctrl+H) with search, and Delete browsing data for a chosen time range
+  (history, cookies, cache).
+- Optional separate keyring for passwords that locks itself when not in use.
+- YouTube and other sites see a current Safari user agent, so they show their
+  normal layout.
 - Removed the built-in ad blocker for now (it slowed pages down and broke some
   sites); it may come back later in a different form. Old rule files are deleted.
 - Search suggestions from your search engine while you type in the command bar
