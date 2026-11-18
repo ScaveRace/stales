@@ -83,6 +83,14 @@ pub fn save(ui: &Rc<Ui>, change: impl FnOnce(&mut toml_edit::DocumentMut)) -> bo
     }
 }
 
+/// Reload the settings page in tab `id`, so it shows what is saved now.
+fn reload(ui: &Ui, id: TabId) {
+    let page = ui.pages.borrow().get(&id).cloned();
+    if let Some(page) = page {
+        page.reload();
+    }
+}
+
 /// Older versions kept theme and layout in ui.toml; move them into config.toml once.
 pub fn move_old_choices_to_config(ui: &Rc<Ui>) {
     let (theme, layout) = {
@@ -137,6 +145,9 @@ fn state(ui: &Ui) -> Value {
             "enabled": config.passwords.enabled,
             "separate_keyring": config.passwords.separate_keyring,
             "lock_minutes": config.passwords.lock_minutes,
+            "ask_system_password": config.passwords.ask_system_password,
+            "policy_installed": crate::system_auth::installed(),
+            "policy_path": crate::system_auth::POLICY_PATH,
         },
         "history": {"enabled": config.history.enabled, "keep_days": config.history.keep_days, "count": ui.history.borrow().len()},
         "site_permissions": saved.site_permissions.iter().map(|p| json!({
@@ -302,11 +313,19 @@ pub fn handle(ui: &Rc<Ui>, id: TabId, message: &str) {
             let separate = flag("separate");
             let minutes = msg.get("minutes").and_then(Value::as_i64).unwrap_or(5).clamp(1, 1440);
             let changed = ui.config.borrow().passwords.separate_keyring != separate;
-            if save(ui, |doc| {
-                config::set(doc, &["passwords"], "separate_keyring", separate.into());
-                config::set(doc, &["passwords"], "lock_minutes", minutes.into());
-            }) && changed
-            {
+            if !changed {
+                save(ui, |doc| config::set(doc, &["passwords"], "lock_minutes", minutes.into()));
+                return;
+            }
+            // Moving reads every password, so confirm it's you first.
+            crate::passwords::after_confirming(ui, move |ui| {
+                if !save(ui, |doc| {
+                    config::set(doc, &["passwords"], "separate_keyring", separate.into());
+                    config::set(doc, &["passwords"], "lock_minutes", minutes.into());
+                }) {
+                    return;
+                }
+                window::toast(ui, "Moving your logins…");
                 // Move the logins over (your system may ask for keyring passwords).
                 let weak = Rc::downgrade(ui);
                 gtk::glib::spawn_future_local(async move {
@@ -324,11 +343,15 @@ pub fn handle(ui: &Rc<Ui>, id: TabId, message: &str) {
                         }
                     }
                     crate::passwords::send_list(&ui, id, false);
+                    reload(&ui, id);
                 });
-                note = Some("Moving your logins…".into());
-            }
+            });
+            // Shows the switch as it really is if you didn't confirm.
+            reload(ui, id);
+            return;
         }
         "lock-now" => {
+            crate::system_auth::forget();
             let weak = Rc::downgrade(ui);
             gtk::glib::spawn_future_local(async move {
                 let result = crate::passwords::lock_vault().await;
@@ -337,7 +360,7 @@ pub fn handle(ui: &Rc<Ui>, id: TabId, message: &str) {
                     &ui,
                     match result {
                         Ok(true) => "Stales keyring locked",
-                        Ok(false) => "There is no Stales keyring yet",
+                        Ok(false) => "Locked: the next use asks for your system password",
                         Err(_) => "Could not lock the keyring",
                     },
                 );
@@ -350,13 +373,33 @@ pub fn handle(ui: &Rc<Ui>, id: TabId, message: &str) {
             return;
         }
         "delete-login" => {
-            let weak = Rc::downgrade(ui);
-            crate::passwords::delete(&text("origin"), &text("username"), move || {
-                if let Some(ui) = weak.upgrade() {
-                    crate::passwords::send_list(&ui, id, false);
-                    window::toast(&ui, "Login deleted");
-                }
+            let (origin, username) = (text("origin"), text("username"));
+            crate::passwords::after_confirming(ui, move |ui| {
+                let weak = Rc::downgrade(ui);
+                crate::passwords::delete(&origin, &username, move || {
+                    if let Some(ui) = weak.upgrade() {
+                        crate::passwords::send_list(&ui, id, false);
+                        window::toast(&ui, "Login deleted");
+                    }
+                });
             });
+            return;
+        }
+        "set-ask-system" => {
+            let on = flag("on");
+            let write = move |ui: &Rc<Ui>| {
+                if save(ui, |doc| config::set(doc, &["passwords"], "ask_system_password", on.into())) {
+                    crate::system_auth::forget();
+                    reload(ui, id);
+                }
+            };
+            if on {
+                write(ui);
+            } else {
+                // Turning the protection off is itself protected.
+                crate::passwords::after_confirming(ui, write);
+                reload(ui, id);
+            }
             return;
         }
         "remove-never" => {

@@ -83,6 +83,12 @@ enabled = true
 # running as you could read passwords from it; a locked keyring can't be read.
 # Unlocking asks for that keyring's own password (your system's dialog).
 separate_keyring = false
+# Ask for your login password (or fingerprint) before a saved password is filled,
+# copied or deleted. Your desktop's own dialog asks; Stales never sees what you type.
+# Needs dev.stales.Stales.policy in /usr/share/polkit-1/actions/ (install.sh does it).
+ask_system_password = true
+# Lock the separate keyring, and ask for your system password again, this many
+# minutes after you last used a password.
 lock_minutes = 5
 
 [history]

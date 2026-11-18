@@ -104,13 +104,17 @@ pub struct PasswordsConfig {
     /// Keep logins in a separate keyring ("Stales passwords") that Stales locks when
     /// not in use, instead of your login keyring (unlocked while you're logged in).
     pub separate_keyring: bool,
-    /// Lock that keyring this many minutes after the last use.
+    /// Lock that keyring this many minutes after the last use, and ask for your
+    /// system password again after this many minutes.
     pub lock_minutes: u32,
+    /// Ask for your login password (or fingerprint) before filling, copying or
+    /// deleting a saved password.
+    pub ask_system_password: bool,
 }
 
 impl Default for PasswordsConfig {
     fn default() -> Self {
-        Self { enabled: true, separate_keyring: false, lock_minutes: 5 }
+        Self { enabled: true, separate_keyring: false, lock_minutes: 5, ask_system_password: true }
     }
 }
 

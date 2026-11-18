@@ -67,6 +67,8 @@
   .row { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-top: 1px solid var(--border); }
   .row:first-of-type { border-top: none; }
   .row .grow { flex: 1; min-width: 0; }
+  .row.warn { background: rgba(234, 179, 8, 0.1); border-radius: 10px; padding: 10px 12px; }
+  .row.warn code { word-break: break-all; }
   .switch { position: relative; width: 42px; height: 24px; flex: none; }
   .switch input { opacity: 0; width: 0; height: 0; }
   .switch span { position: absolute; inset: 0; background: var(--key); border: 1px solid var(--border); border-radius: 99px; cursor: pointer; transition: .15s; }
@@ -298,7 +300,9 @@ function settingsPage() {
       <h2>Passwords</h2>
       <div class="row"><span class="grow"><b>Offer to save and fill logins</b><br><span class="muted">Stored in your system keyring (GNOME Keyring, KWallet or KeePassXC), encrypted with your login. Filled only on the same site, only when you pick it or press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd>.</span></span>${toggle("pw-enabled", S.passwords.enabled, "Password manager")}</div>
       <div class="row"><span class="grow"><b>Keep logins in a separate, locked keyring</b><br><span class="muted">Your login keyring stays unlocked while you're logged in, so any program running as you could read it. With this on, logins live in their own keyring ("Stales passwords", with its own password) that locks itself when not in use. While locked nothing can read it; filling a login asks for its password.</span></span>${toggle("pw-separate", S.passwords.separate_keyring, "Separate locked keyring")}</div>
-      ${S.passwords.separate_keyring ? `<div class="row"><span class="grow">Lock it again after <span class="muted">(minutes)</span></span><input type="number" id="pw-minutes" min="1" max="1440" value="${S.passwords.lock_minutes}" style="width:90px"><button class="small" id="pw-lock">Lock now</button></div>` : ""}
+      <div class="row"><span class="grow"><b>Ask for my system password</b><br><span class="muted">Before a saved password is filled, copied or deleted, your desktop asks for your login password (or fingerprint, if your system allows it there). Stales never sees what you type; it only learns yes or no.</span></span>${toggle("pw-ask", S.passwords.ask_system_password, "Ask for my system password")}</div>
+      ${S.passwords.ask_system_password && !S.passwords.policy_installed ? `<div class="row warn"><span class="grow">⚠ This needs a small system file that isn't installed yet, so filling and copying passwords is refused for now. Install it once (asks for your password):<br><code>sudo install -Dm644 data/dev.stales.Stales.policy ${esc(S.passwords.policy_path)}</code><br><span class="muted">Run it in the Stales source folder. The Arch package and <code>sudo ./install.sh</code> do this for you.</span></span></div>` : ""}
+      ${S.passwords.separate_keyring || S.passwords.ask_system_password ? `<div class="row"><span class="grow">${S.passwords.separate_keyring ? "Lock the keyring and ask" : "Ask"} again after <span class="muted">(minutes since the last use)</span></span><input type="number" id="pw-minutes" min="1" max="1440" value="${S.passwords.lock_minutes}" style="width:90px"><button class="small" id="pw-lock">Lock now</button></div>` : ""}
       <h3>Saved logins</h3>
       <div id="logins">${loginsHtml()}</div>
       <h3>Never save on</h3>
@@ -310,6 +314,7 @@ function settingsPage() {
         <li><b>Filled only by you</b> (picking it or <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd>), only on exactly the same site, only over https. Websites can't trigger filling or see other sites' logins.</li>
         <li><b>In memory only briefly:</b> Stales wipes each copy right after saving or filling and writes no crash files; the system already stops other programs from reading its memory.</li>
         <li><b>Copied passwords</b> are marked secret for clipboard history tools and cleared from the clipboard after 30 seconds.</li>
+        <li><b>Your system password guards using them:</b> with "Ask for my system password" on, a page or someone at your unlocked computer can't fill or copy a password without your login password or fingerprint. This is checked by polkit, the same system service that guards mounting disks.</li>
         <li><b>What remains:</b> with the normal setting your login keyring is unlocked while you're logged in, and programs running as you can ask it for passwords (true for every Linux app using it). Turn on the separate locked keyring above to close that gap; then passwords are only readable for a few minutes after you used one. A site sees a password once it is in its field, like in any browser.</li>
       </ul>
     </section>
@@ -463,6 +468,7 @@ function wireSettings() {
     if (confirm(msg)) keyring(); else e.target.checked = !e.target.checked;
   });
   on("pw-minutes", "change", keyring);
+  on("pw-ask", "change", (e) => send("set-ask-system", { on: e.target.checked }));
   on("pw-lock", "click", () => send("lock-now"));
   wireLogins();
 

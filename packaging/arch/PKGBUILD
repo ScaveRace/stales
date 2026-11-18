@@ -9,7 +9,7 @@ pkgdesc="Fast, keyboard-driven web browser with an Arc-style sidebar"
 arch=('x86_64' 'aarch64')
 url="https://github.com/ScaveRace/stales"
 license=('GPL-3.0-or-later')
-depends=('gtk4' 'webkitgtk-6.0' 'glib2' 'libsoup3' 'libsecret')
+depends=('gtk4' 'webkitgtk-6.0' 'glib2' 'libsoup3' 'libsecret' 'polkit')
 makedepends=('cargo' 'git')
 provides=('stales')
 conflicts=('stales')
@@ -47,5 +47,6 @@ package() {
   install -Dm644 data/dev.stales.Stales.desktop "$pkgdir/usr/share/applications/dev.stales.Stales.desktop"
   install -Dm644 data/icons/dev.stales.Stales.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/dev.stales.Stales.svg"
   install -Dm644 data/dev.stales.Stales.metainfo.xml "$pkgdir/usr/share/metainfo/dev.stales.Stales.metainfo.xml"
+  install -Dm644 data/dev.stales.Stales.policy "$pkgdir/usr/share/polkit-1/actions/dev.stales.Stales.policy"
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }

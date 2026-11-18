@@ -7,6 +7,13 @@
 - Search suggestions from your search engine while you type in the command bar
   (also for `@` shortcuts and your own engines with `suggest_url`). Turn them off in
   Settings → Search. The results list now works with ↑/↓, Ctrl+N/P, Enter and Tab.
+- Saved passwords ask for your system password (or fingerprint) before they are
+  filled, copied or deleted, through polkit; Stales never sees what you type. On by
+  default (`ask_system_password`), asks again after `lock_minutes`. Needs the new
+  polkit file `dev.stales.Stales.policy`, installed by `sudo ./install.sh` and the package.
+- Faster: a new tab starts loading at once (a blank page is kept ready), videos
+  opened directly start playing (autoplay allowed, `[web] autoplay`), GTK draws with
+  OpenGL (far less CPU during video), and the tab list updates in place.
 
 ## 0.1.0 (2026-11-10)
 

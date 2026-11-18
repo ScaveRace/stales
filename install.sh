@@ -23,6 +23,7 @@ if [ "${1:-}" = "uninstall" ]; then
           "$PREFIX/share/applications/$APP_ID.desktop" \
           "$PREFIX/share/icons/hicolor/scalable/apps/$APP_ID.svg" \
           "$PREFIX/share/metainfo/$APP_ID.metainfo.xml"
+    [ "$(id -u)" -ne 0 ] || rm -f "/usr/share/polkit-1/actions/$APP_ID.policy"
     echo "Stales removed from $PREFIX. Your settings and tabs are still in ~/.config/stales and ~/.local/share/stales."
     exit 0
 fi
@@ -44,6 +45,15 @@ install -Dm755 "$BIN" "$PREFIX/bin/stales"
 install -Dm644 "data/$APP_ID.desktop" "$PREFIX/share/applications/$APP_ID.desktop"
 install -Dm644 "data/icons/$APP_ID.svg" "$PREFIX/share/icons/hicolor/scalable/apps/$APP_ID.svg"
 install -Dm644 "data/$APP_ID.metainfo.xml" "$PREFIX/share/metainfo/$APP_ID.metainfo.xml"
+# The "confirm it's you" check for saved passwords. polkit only reads this one
+# folder, so it needs root even when Stales goes into ~/.local.
+POLICY="/usr/share/polkit-1/actions/$APP_ID.policy"
+if [ "$(id -u)" -eq 0 ]; then
+    install -Dm644 "data/$APP_ID.policy" "$POLICY"
+elif ! cmp -s "data/$APP_ID.policy" "$POLICY"; then
+    echo "To let Stales ask for your system password before using a saved password, run once:"
+    echo "  sudo install -Dm644 data/$APP_ID.policy $POLICY"
+fi
 command -v update-desktop-database >/dev/null && update-desktop-database "$PREFIX/share/applications" 2>/dev/null || true
 
 echo "Installed Stales to $PREFIX/bin/stales"

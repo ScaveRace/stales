@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!--
+  Lets Stales ask for your login password (or fingerprint) before it fills, copies
+  or deletes a saved password. "auth_self" means your own password, not root's.
+  Install to /usr/share/polkit-1/actions/ (needs root once).
+-->
+<policyconfig>
+  <vendor>Stales</vendor>
+  <vendor_url>https://github.com/ScaveRace/stales</vendor_url>
+  <icon_name>dev.stales.Stales</icon_name>
+
+  <action id="dev.stales.Stales.use-password">
+    <description>Use a saved password in Stales</description>
+    <message>Stales wants to use a saved password. Confirm it's you.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_self</allow_active>
+    </defaults>
+  </action>
+</policyconfig>

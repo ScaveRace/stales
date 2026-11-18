@@ -17,6 +17,7 @@ mod settings;
 mod sidebar;
 mod state;
 mod suggest;
+mod system_auth;
 mod theme;
 mod topbar;
 mod welcome;

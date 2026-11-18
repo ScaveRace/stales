@@ -37,7 +37,7 @@ Arc showed how pleasant a browser can be when tabs live in a sidebar and the bro
 - No accounts, no telemetry, no sync servers.
 - **Sites ask first:** location, camera, microphone, notifications, screen sharing and downloads need your "Allow" (remembered per site, changeable in Settings).
 - **History** you control (<kbd>Ctrl</kbd>+<kbd>H</kbd>): searchable, kept for as many days as you choose, or off. Delete history, cookies or cache for the last hour, day, week or all time.
-- **Password manager** using your system keyring: saves after you log in, fills only on the same secure site when you ask.
+- **Password manager** using your system keyring: saves after you log in, fills only on the same secure site when you ask, and asks for your system password (or fingerprint) first.
 - Your cookies, tabs and settings are stored readable by you only.
 
 **Make it yours**
@@ -152,7 +152,7 @@ The most useful keys; <kbd>F1</kbd> inside Stales shows them all, including any 
 
 - **No Chrome or Firefox extensions.** WebKit can't run them. Keyboard control, dark pages and a password manager are built in. An ad blocker was built in once and is removed for now; it will come back later.
 - **Netflix, Spotify and other DRM video** usually won't play. WebKitGTK on Linux has no Widevine, which affects every WebKit browser on Linux.
-- **Passwords** are kept by your system keyring (GNOME Keyring, KWallet or KeePassXC), encrypted with your login, never in Stales' files. Stales wipes passwords from its memory after use, writes no crash dumps, and marks copied passwords as secret for clipboard managers. While you're logged in, programs running as you can ask the keyring for them; that's how the Linux keyring works for every app.
+- **Passwords** are kept by your system keyring (GNOME Keyring, KWallet or KeePassXC), encrypted with your login, never in Stales' files. Stales wipes passwords from its memory after use, writes no crash dumps, and marks copied passwords as secret for clipboard managers. Before a saved password is filled, copied or deleted, your desktop's polkit dialog asks for your login password; Stales never sees it. This needs `data/dev.stales.Stales.policy` in `/usr/share/polkit-1/actions/` (`sudo ./install.sh` and the Arch package install it). For fingerprints there, add `auth sufficient pam_fprintd.so` at the top of `/etc/pam.d/polkit-1`. While you're logged in, programs running as you can still ask the keyring directly; turn on the separate keyring in Settings to close that.
 - **The engine is WebKitGTK,** the engine of Safari and GNOME Web. It's light on memory and fits Linux well. A few sites tuned only for Chrome may misbehave.
 
 ## How it's built

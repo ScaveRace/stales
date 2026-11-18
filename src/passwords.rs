@@ -25,6 +25,7 @@ use libsecret::{
 use serde_json::json;
 
 use crate::state::TabId;
+use crate::system_auth::{self, Outcome};
 use crate::window::{self, Ui};
 
 /// A password in memory. Overwritten with zeros as soon as it is dropped, so it
@@ -202,6 +203,11 @@ fn enabled(ui: &Ui) -> bool {
 
 /// Look up the password and put it into the page's login fields.
 fn fill(ui: &Rc<Ui>, id: TabId, origin: &str, username: &str) {
+    let (origin, user) = (origin.to_string(), username.to_string());
+    after_confirming(ui, move |ui| fill_now(ui, id, &origin, &user));
+}
+
+fn fill_now(ui: &Rc<Ui>, id: TabId, origin: &str, username: &str) {
     let weak = Rc::downgrade(ui);
     let user = username.to_string();
     password(origin, username, move |found| {
@@ -398,6 +404,11 @@ pub fn send_list(ui: &Rc<Ui>, id: TabId, unlock: bool) {
 
 /// Copy a saved password, and clear the clipboard again after 30 seconds.
 pub fn copy(ui: &Rc<Ui>, origin: &str, username: &str) {
+    let (origin, user) = (origin.to_string(), username.to_string());
+    after_confirming(ui, move |ui| copy_now(ui, &origin, &user));
+}
+
+fn copy_now(ui: &Rc<Ui>, origin: &str, username: &str) {
     let weak = Rc::downgrade(ui);
     password(origin, username, move |found| {
         let (Some(ui), Some(password)) = (weak.upgrade(), found) else { return };
@@ -425,6 +436,39 @@ pub fn copy(ui: &Rc<Ui>, origin: &str, username: &str) {
                 }
             });
         });
+    });
+}
+
+// ---------- "Confirm it's you" ----------
+
+/// Run `then` once you've confirmed with your login password or fingerprint (when
+/// `ask_system_password` is on; see system_auth.rs). Within `lock_minutes` of the
+/// last confirmation it runs at once.
+pub fn after_confirming(ui: &Rc<Ui>, then: impl FnOnce(&Rc<Ui>) + 'static) {
+    let (ask, minutes) = {
+        let config = ui.config.borrow();
+        (config.passwords.ask_system_password, config.passwords.lock_minutes.clamp(1, 24 * 60))
+    };
+    if !ask {
+        then(ui);
+        return;
+    }
+    let weak = Rc::downgrade(ui);
+    glib::spawn_future_local(async move {
+        let outcome = system_auth::confirm(Duration::from_secs(u64::from(minutes) * 60)).await;
+        let Some(ui) = weak.upgrade() else { return };
+        match outcome {
+            Outcome::Allowed => then(&ui),
+            Outcome::Refused => window::toast(&ui, "Not confirmed, so the password was not used"),
+            Outcome::NotInstalled => window::toast(
+                &ui,
+                "Asking for your system password needs Stales' polkit file; see Settings → Passwords",
+            ),
+            Outcome::Failed(e) => {
+                eprintln!("stales: could not ask polkit: {e}");
+                window::toast(&ui, "Could not ask for your system password (see the terminal)");
+            }
+        }
     });
 }
 
